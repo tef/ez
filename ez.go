@@ -237,7 +237,7 @@ type Parser struct {
 	Err   error
 }
 
-func (p *Parser) Parse(s string) bool {
+func (p *Parser) Accept(s string) bool {
 	parserState := &parserState{
 		rules: p.rules,
 		buf:   s,
@@ -298,17 +298,17 @@ func main() {
 	}
 
 	fmt.Println("-")
-	if p.Parse("true") {
+	if p.Accept("true") {
 		fmt.Println("parsed true!")
 	}
 
 	fmt.Println("-")
 
-	if p.Parse("false") {
+	if p.Accept("false") {
 		fmt.Println("parsed false!")
 	}
 	fmt.Println("-")
-	if !p.Parse("blue") {
+	if !p.Accept("blue") {
 		fmt.Println("didn't parse! (good)")
 	}
 }
