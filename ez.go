@@ -1,4 +1,4 @@
-package main
+package ez
 
 import (
 	"errors"
@@ -272,43 +272,3 @@ func BuildParser(stub func(*Grammar)) *Parser {
 	return p
 }
 
-func main() {
-	p := BuildParser(func(g *Grammar) {
-		g.Start = "expr"
-
-		g.Define("expr", func() {
-			g.Choice(func() {
-				g.Call("truerule")
-			}, func() {
-				g.Call("falserule")
-			})
-		})
-
-		g.Define("truerule", func() {
-			g.Literal("true")
-		})
-
-		g.Define("falserule", func() {
-			g.Literal("false")
-		})
-	})
-
-	if p.Err != nil {
-		fmt.Println("err:", p.Err)
-	}
-
-	fmt.Println("-")
-	if p.Accept("true") {
-		fmt.Println("parsed true!")
-	}
-
-	fmt.Println("-")
-
-	if p.Accept("false") {
-		fmt.Println("parsed false!")
-	}
-	fmt.Println("-")
-	if !p.Accept("blue") {
-		fmt.Println("didn't parse! (good)")
-	}
-}
