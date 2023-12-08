@@ -95,7 +95,6 @@ func TestErrors(t *testing.T) {
 
 		g.Define("expr", func() {})
 	})
-
 	g.Define("expr2", func() {})
 
 	if g.err == nil {
@@ -105,8 +104,39 @@ func TestErrors(t *testing.T) {
 	}
 
 }
+
 func TestParser(t *testing.T) {
-	parser, err := BuildParser(func(g *Grammar) {
+	var parser *Parser
+	var err error
+	var ok bool
+
+	parser, err = BuildParser(func(g *Grammar) {
+		g.Start = "start"
+		g.Define("start", func() {
+			g.Call("test_literal")
+			// Call optional
+		})
+
+		g.Define("test_literal", func() {
+			g.Literal("example")
+		})
+
+		// test optional
+	})
+
+	if err != nil {
+		t.Errorf("error defining grammar:\n%v", err)
+	} else {
+		ok = parser.testRule("test_literal",
+			[]string{"example"},
+			[]string{"", "bad", "longer example", "example bad"},
+		)
+		if !ok {
+			t.Error("test case failed")
+		}
+	}
+
+	parser, err = BuildParser(func(g *Grammar) {
 		g.Start = "expr"
 		g.Whitespace = []string{" ", "\t"}
 		g.Newline = []string{"\r\n", "\r", "\n"}
@@ -132,21 +162,22 @@ func TestParser(t *testing.T) {
 	})
 
 	if err != nil {
-		t.Fatalf("error defining grammar:\n%v", err)
-	}
+		t.Errorf("error defining grammar:\n%v", err)
+	} else {
 
-	if !parser.Accept("true") {
-		t.Error("didn't parse true")
-	}
+		if !parser.testParse("true") {
+			t.Error("didn't parse true")
+		}
 
-	if !parser.Accept("false") {
-		t.Error("didn't parse false")
-	}
+		if !parser.testParse("false") {
+			t.Error("didn't parse false")
+		}
 
-	if parser.Accept("blue") {
-		t.Error("shouldn't parse blue")
-	}
-	if !parser.Accept("truey") {
-		t.Error("didn't parse truey")
+		if parser.testParse("blue") {
+			t.Error("shouldn't parse blue")
+		}
+		if !parser.testParse("truey") {
+			t.Error("didn't parse truey")
+		}
 	}
 }

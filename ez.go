@@ -526,13 +526,38 @@ type Parser struct {
 	Err     error
 }
 
-func (p *Parser) Accept(s string) bool {
+func (p *Parser) testParse(s string) bool {
 	parserState := &parserState{
 		buf: s,
 	}
 	start := p.rules[p.start]
 	return start(p, parserState) && parserState.offset == len(parserState.buf)
+}
 
+func (p *Parser) testRule(name string, accept []string, reject []string) bool {
+	for _, s := range accept {
+		parserState := &parserState{
+			buf: s,
+		}
+		start := p.rules[p.nameIdx[name]]
+		complete := start(p, parserState) && parserState.offset == len(parserState.buf)
+
+		if !complete {
+			return false
+		}
+	}
+	for _, s := range reject {
+		parserState := &parserState{
+			buf: s,
+		}
+		start := p.rules[p.nameIdx[name]]
+		complete := start(p, parserState) && parserState.offset == len(parserState.buf)
+
+		if complete {
+			return false
+		}
+	}
+	return true
 }
 
 func BuildGrammar(stub func(*Grammar)) (*Grammar, error) {
