@@ -4,8 +4,11 @@ import (
 	"testing"
 )
 
+// t.Log(...) / t.Logf("%v", err)
+// t.Error(...) Errorf,  mark fail and continue
+// t.Fatal(...) FatalF,  mark fail, exit
+
 func TestParser(t *testing.T) {
-	// Log Error Fatal
 	parser, err := BuildParser(func(g *Grammar) {
 		g.Start = "expr"
 		g.Whitespace = []string{" ", "\t"}

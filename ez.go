@@ -40,7 +40,6 @@ const (
 type parseRule func(*Parser, *parserState) bool
 
 type parserState struct {
-	rules  map[string]parseRule
 	buf    string
 	offset int
 	// column int
@@ -92,8 +91,9 @@ func (n *grammarNode) buildRule(g *Grammar) parseRule {
 		}
 	case callNode:
 		name := n.arg1
+		idx := *g.nameIdx[name]
 		return func(p *Parser, s *parserState) bool {
-			r := p.rules[name]
+			r := p.rules[idx]
 			return r(p, s)
 		}
 	case optionalNode:
@@ -197,9 +197,11 @@ type Grammar struct {
 	Whitespace []string
 	Newline    []string
 
-	rules map[string]*grammarNode
-	nb    *nodeBuilder
-	err   error
+	rules   []*grammarNode
+	names   []string
+	nameIdx map[string]*int
+	nb      *nodeBuilder
+	err     error
 }
 
 func (g *Grammar) Define(name string, stub func()) {
@@ -209,6 +211,12 @@ func (g *Grammar) Define(name string, stub func()) {
 
 	if g.nb != nil {
 		g.err = errors.New("cant define inside a define")
+		return
+	}
+
+	if g.nameIdx[name] != nil {
+		g.err = errors.New("cant redefine")
+		return
 	}
 
 	r := &nodeBuilder{
@@ -222,7 +230,10 @@ func (g *Grammar) Define(name string, stub func()) {
 	if g.err != nil {
 		return
 	}
-	g.rules[name] = r.buildNode()
+	pos := len(g.names)
+	g.names = append(g.names, name)
+	g.nameIdx[name] = &pos
+	g.rules = append(g.rules, r.buildNode())
 }
 
 func (g *Grammar) Call(name string) {
@@ -349,30 +360,33 @@ func (g *Grammar) Repeat(min_t int, max_t int, stub func()) {
 }
 
 func (g *Grammar) Parser() (*Parser, error) {
-	rules := make(map[string]parseRule, len(g.rules))
-	start := g.Start
+	rules := make([]parseRule, len(g.rules))
+	start := g.nameIdx[g.Start]
 
 	for k, v := range g.rules {
 		rules[k] = v.buildRule(g)
 	}
 
 	p := &Parser{
-		start: start,
-		rules: rules,
+		start:   *start,
+		rules:   rules,
+		names:   g.names,
+		nameIdx: g.nameIdx,
 	}
 	return p, nil
 }
 
 type Parser struct {
-	rules map[string]parseRule
-	start string
-	Err   error
+	rules   []parseRule
+	names   []string
+	nameIdx map[string]*int
+	start   int
+	Err     error
 }
 
 func (p *Parser) Accept(s string) bool {
 	parserState := &parserState{
-		rules: p.rules,
-		buf:   s,
+		buf: s,
 	}
 	start := p.rules[p.start]
 	return start(p, parserState) && parserState.offset == len(parserState.buf)
@@ -381,7 +395,8 @@ func (p *Parser) Accept(s string) bool {
 
 func BuildGrammar(stub func(*Grammar)) (*Grammar, error) {
 	g := &Grammar{
-		rules: make(map[string]*grammarNode, 1),
+		rules:   make([]*grammarNode, 0),
+		nameIdx: make(map[string]*int, 0),
 	}
 	stub(g)
 
@@ -394,7 +409,8 @@ func BuildGrammar(stub func(*Grammar)) (*Grammar, error) {
 
 func BuildParser(stub func(*Grammar)) (*Parser, error) {
 	g := &Grammar{
-		rules: make(map[string]*grammarNode, 1),
+		rules:   make([]*grammarNode, 0),
+		nameIdx: make(map[string]*int, 0),
 	}
 	stub(g)
 
