@@ -53,7 +53,7 @@ ez.Sequence(func(){
 
 It's a little more verbose, but it's a little less error prone. It lets you write
 more interesting grammars than you could in other methods, and you don't need to learn
-a new syntax either.
+a new syntax either. There's even error messages with line numbers, too.
 
 `ez` also takes a different approach to parsing algorithms
 

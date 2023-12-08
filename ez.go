@@ -1,7 +1,7 @@
 package ez
 
 import (
-	"errors"
+	// "errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -33,7 +33,6 @@ const (
 )
 
 const (
-	inOutside  = "not-inside-def"
 	inGrammar  = "inside-grammar"
 	inDef      = "inside-definition"
 	inChoice   = "inside-choice"
@@ -96,7 +95,7 @@ func (n *grammarNode) buildRule(g *Grammar) parseRule {
 		}
 	case callNode:
 		name := n.arg1
-		idx := *g.nameIdx[name]
+		idx := g.nameIdx[name]
 		return func(p *Parser, s *parserState) bool {
 			r := p.rules[idx]
 			return r(p, s)
@@ -197,12 +196,29 @@ func (b *nodeBuilder) append(a *grammarNode) {
 	b.args = append(b.args, a)
 }
 
-func (b *nodeBuilder) canDefine() bool {
-	return b != nil && b.context == inGrammar
+func (b *nodeBuilder) inRule() bool {
+	return b != nil && b.context != inGrammar
 }
 
-func (b *nodeBuilder) insideDef() bool {
-	return b != nil && b.context != inGrammar
+type grammarError struct {
+	g       *Grammar
+	pos     int
+	rule    *int
+	message string
+	fatal   bool
+}
+
+func (e *grammarError) Error() string {
+	p := e.g.posInfo[e.pos]
+	if e.rule != nil {
+		name := e.g.names[*e.rule]
+		rulePos := e.g.posInfo[e.g.rulePos[*e.rule]]
+		return fmt.Sprintf("%v: %v (inside %q at %v)", p, e.message, name, rulePos)
+
+	} else {
+		return fmt.Sprintf("%v: %v", p, e.message)
+
+	}
 }
 
 type Grammar struct {
@@ -212,7 +228,7 @@ type Grammar struct {
 
 	rules   []*grammarNode
 	names   []string
-	nameIdx map[string]*int
+	nameIdx map[string]int
 
 	// list of pos for each name
 	callPos map[string][]int
@@ -224,7 +240,7 @@ type Grammar struct {
 
 	nb *nodeBuilder
 
-	pos    int
+	pos    int // grammar position
 	errors []error
 	err    error
 }
@@ -242,34 +258,77 @@ func (g *Grammar) markPosition() int {
 	return -1
 }
 
-func (g *Grammar) Error(args ...any) {
-	o := fmt.Sprint(args...)
-	err := errors.New(o)
+func (g *Grammar) Err() error {
+	return g.err
+}
+
+func (g *Grammar) Errors() []error {
+	if g.errors == nil {
+		return []error{}
+	}
+	return g.errors
+}
+
+func (g *Grammar) Error(pos int, args ...any) {
+	msg := fmt.Sprint(args...)
+	err := &grammarError{
+		g:       g,
+		message: msg,
+		pos:     pos,
+	}
 	if g.err == nil {
 		g.err = err
 	}
 	g.errors = append(g.errors, err)
 }
 
-func (g *Grammar) Errorf(s string, args ...any) {
-	o := fmt.Sprintf(s, args...)
-	err := errors.New(o)
+func (g *Grammar) Errorf(pos int, s string, args ...any) {
+	msg := fmt.Sprintf(s, args...)
+	err := &grammarError{
+		g:       g,
+		message: msg,
+		pos:     pos,
+	}
 	if g.err == nil {
 		g.err = err
 	}
 	g.errors = append(g.errors, err)
 }
 
-func (g *Grammar) Warn(args ...any) {
-	o := fmt.Sprint(args...)
-	err := errors.New(o)
+func (g *Grammar) Warn(pos int, args ...any) {
+	msg := fmt.Sprint(args...)
+	err := &grammarError{
+		g:       g,
+		message: msg,
+		pos:     pos,
+	}
 	g.errors = append(g.errors, err)
 }
 
-func (g *Grammar) Warnf(s string, args ...any) {
-	o := fmt.Sprintf(s, args...)
-	err := errors.New(o)
+func (g *Grammar) Warnf(pos int, s string, args ...any) {
+	msg := fmt.Sprintf(s, args...)
+	err := &grammarError{
+		g:       g,
+		message: msg,
+		pos:     pos,
+	}
 	g.errors = append(g.errors, err)
+}
+
+func (g *Grammar) shouldExit(pos int) bool {
+	if g.err != nil {
+		return true
+	}
+	if g.nb == nil {
+		g.Error(pos, "must call builder methods inside builder")
+		return true
+	}
+	if !g.nb.inRule() {
+		g.Error(pos, "must call builder methods inside Define()")
+		return true
+	}
+	return false
+
 }
 
 func (g *Grammar) callStub(b *nodeBuilder, stub func()) {
@@ -283,15 +342,17 @@ func (g *Grammar) Define(name string, stub func()) {
 	p := g.markPosition()
 	if g.err != nil {
 		return
-	}
-
-	if !g.nb.canDefine() {
-		g.Error("must call define inside grammar")
+	} else if g.nb == nil {
+		g.Error(p, "must call define inside grammar")
+		return
+	} else if g.nb.inRule() {
+		g.Error(p, "cant call define inside define")
 		return
 	}
 
-	if g.nameIdx[name] != nil {
-		g.Error("cant redefine")
+	if old, ok := g.nameIdx[name]; ok {
+		oldPos := g.posInfo[g.rulePos[old]]
+		g.Errorf(p, "cant redefine %q, already defined at %v", name, oldPos)
 		return
 	}
 
@@ -306,18 +367,14 @@ func (g *Grammar) Define(name string, stub func()) {
 
 	pos := len(g.names)
 	g.names = append(g.names, name)
-	g.nameIdx[name] = &pos
+	g.nameIdx[name] = pos
 	g.rulePos = append(g.rulePos, p)
 	g.rules = append(g.rules, r.buildNode(p))
 }
 
 func (g *Grammar) Call(name string) {
 	p := g.markPosition()
-	if g.err != nil {
-		return
-	}
-	if g.nb == nil {
-		g.Error("called outside of definition")
+	if g.shouldExit(p) {
 		return
 	}
 	g.callPos[name] = append(g.callPos[name], p)
@@ -327,15 +384,11 @@ func (g *Grammar) Call(name string) {
 
 func (g *Grammar) Literal(s ...string) {
 	p := g.markPosition()
-	if g.err != nil {
-		return
-	}
-	if !g.nb.insideDef() {
-		g.Error("called outside of definition")
+	if g.shouldExit(p) {
 		return
 	}
 	if len(s) == 0 {
-		g.Error("missing operand")
+		g.Error(p, "missing operand")
 	}
 
 	if len(s) == 1 {
@@ -353,11 +406,7 @@ func (g *Grammar) Literal(s ...string) {
 
 func (g *Grammar) Choice(options ...func()) {
 	p := g.markPosition()
-	if g.err != nil {
-		return
-	}
-	if !g.nb.insideDef() {
-		g.Error("called outside of definition")
+	if g.shouldExit(p) {
 		return
 	}
 
@@ -381,11 +430,7 @@ func (g *Grammar) Choice(options ...func()) {
 
 func (g *Grammar) Optional(stub func()) {
 	p := g.markPosition()
-	if g.err != nil {
-		return
-	}
-	if !g.nb.insideDef() {
-		g.Error("called outside of definition")
+	if g.shouldExit(p) {
 		return
 	}
 	r := &nodeBuilder{context: inOptional}
@@ -401,11 +446,7 @@ func (g *Grammar) Optional(stub func()) {
 
 func (g *Grammar) Repeat(min_t int, max_t int, stub func()) {
 	p := g.markPosition()
-	if g.err != nil {
-		return
-	}
-	if !g.nb.insideDef() {
-		g.Error("called outside of definition")
+	if g.shouldExit(p) {
 		return
 	}
 
@@ -425,10 +466,9 @@ func (g *Grammar) Check() error {
 		return g.err
 	}
 	for name, pos := range g.callPos {
-		if g.nameIdx[name] == nil {
+		if _, ok := g.nameIdx[name]; !ok {
 			for _, p := range pos {
-				msg := g.posInfo[p]
-				g.Error(msg, ": missing rule, ", name)
+				g.Errorf(p, "missing rule %q", name)
 			}
 		}
 	}
@@ -436,20 +476,17 @@ func (g *Grammar) Check() error {
 	for n, name := range g.names {
 		if name != g.Start && g.callPos[name] == nil {
 			p := g.rulePos[n]
-			msg := g.posInfo[p]
-			g.Error(msg, ": unused rule, ", name)
+			g.Errorf(p, "unused rule %q", name)
 		}
 	}
 
 	if g.Start == "" {
-		pos := g.pos
-		g.Error(pos, "starting rule undefined")
+		g.Error(g.pos, "starting rule undefined")
 	}
 
 	_, ok := g.nameIdx[g.Start]
 	if !ok {
-		pos := g.pos
-		g.Error(pos, ": starting rule ", g.Start, "is missing")
+		g.Errorf(g.pos, "starting rule %q is missing", g.Start)
 	}
 
 	return g.err
@@ -469,7 +506,7 @@ func (g *Grammar) Parser() (*Parser, error) {
 	start := g.nameIdx[g.Start]
 
 	p := &Parser{
-		start:   *start,
+		start:   start,
 		rules:   rules,
 		names:   g.names,
 		nameIdx: g.nameIdx,
@@ -480,7 +517,7 @@ func (g *Grammar) Parser() (*Parser, error) {
 type Parser struct {
 	rules   []parseRule
 	names   []string
-	nameIdx map[string]*int
+	nameIdx map[string]int
 	start   int
 	Err     error
 }
@@ -499,9 +536,9 @@ func BuildGrammar(stub func(*Grammar)) (*Grammar, error) {
 		context: inGrammar,
 	}
 	g := &Grammar{
-		nameIdx: make(map[string]*int, 0),
+		nameIdx: make(map[string]int, 0),
 		callPos: make(map[string][]int, 0),
-		nb: b,
+		nb:      b,
 	}
 	g.pos = g.markPosition()
 	stub(g)
@@ -518,9 +555,9 @@ func BuildParser(stub func(*Grammar)) (*Parser, error) {
 		context: inGrammar,
 	}
 	g := &Grammar{
-		nameIdx: make(map[string]*int, 0),
+		nameIdx: make(map[string]int, 0),
 		callPos: make(map[string][]int, 0),
-		nb: b,
+		nb:      b,
 	}
 	g.pos = g.markPosition()
 	stub(g)
