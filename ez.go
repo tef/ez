@@ -1,7 +1,7 @@
 package ez
 
 import (
-	// "errors"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -343,8 +343,12 @@ func (g *Grammar) shouldExit(pos int) bool {
 }
 
 func (g *Grammar) buildStub(context string, stub func()) *nodeBuilder {
+	var rule *int
 	oldNb := g.nb
-	newNb := &nodeBuilder{context: context, rule: oldNb.rule}
+	if oldNb != nil {
+		rule = oldNb.rule
+	}
+	newNb := &nodeBuilder{context: context, rule: rule}
 	g.nb = newNb
 	stub()
 	g.nb = oldNb
@@ -359,6 +363,22 @@ func (g *Grammar) buildRule(rule int, stub func()) *nodeBuilder {
 	g.nb = oldNb
 	return newNb
 }
+
+func (g *Grammar) buildGrammar(stub func(*Grammar)) error {
+	if g.nb != nil || g.names != nil {
+		return errors.New("use empty grammar")
+	}
+	g.nameIdx = make(map[string]int, 0)
+	g.callPos = make(map[string][]int, 0)
+	g.pos = g.markPosition()
+	g.nb = &nodeBuilder{context: inGrammar}
+
+	stub(g)
+	g.nb = nil
+
+	return g.Check()
+}
+
 func (g *Grammar) Define(name string, stub func()) {
 	p := g.markPosition()
 	if g.err != nil {
@@ -561,37 +581,20 @@ func (p *Parser) testRule(name string, accept []string, reject []string) bool {
 }
 
 func BuildGrammar(stub func(*Grammar)) (*Grammar, error) {
-	b := &nodeBuilder{
-		context: inGrammar,
+	g := &Grammar{}
+	err := g.buildGrammar(stub)
+	if err != nil {
+		return nil, err
 	}
-	g := &Grammar{
-		nameIdx: make(map[string]int, 0),
-		callPos: make(map[string][]int, 0),
-		nb:      b,
-	}
-	g.pos = g.markPosition()
-	stub(g)
-	g.nb = nil
-
-	if g.Check() != nil {
-		return nil, g.err
-	}
-
 	return g, nil
 }
 
 func BuildParser(stub func(*Grammar)) (*Parser, error) {
-	b := &nodeBuilder{
-		context: inGrammar,
+	g := &Grammar{}
+	err := g.buildGrammar(stub)
+	if err != nil {
+		return nil, err
 	}
-	g := &Grammar{
-		nameIdx: make(map[string]int, 0),
-		callPos: make(map[string][]int, 0),
-		nb:      b,
-	}
-	g.pos = g.markPosition()
-	stub(g)
-	g.nb = nil
 
 	return g.Parser()
 }
