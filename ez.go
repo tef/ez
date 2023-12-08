@@ -34,7 +34,7 @@ const (
 	inDef      = "inside-definition"
 	inChoice   = "inside-choice"
 	inOptional = "inside-optional"
-	inRepeat = "inside-repeat"
+	inRepeat   = "inside-repeat"
 )
 
 type parseRule func(*Parser, *parserState) bool
@@ -84,7 +84,7 @@ type grammarNode struct {
 	arg3 int
 }
 
-func (n *grammarNode) buildRule() parseRule {
+func (n *grammarNode) buildRule(g *Grammar) parseRule {
 	switch n.kind {
 	case literalNode:
 		return func(p *Parser, s *parserState) bool {
@@ -99,7 +99,7 @@ func (n *grammarNode) buildRule() parseRule {
 	case optionalNode:
 		rules := make([]parseRule, len(n.args))
 		for i, r := range n.args {
-			rules[i] = r.buildRule()
+			rules[i] = r.buildRule(g)
 		}
 		return func(p *Parser, s *parserState) bool {
 			s1 := s.clone()
@@ -115,7 +115,7 @@ func (n *grammarNode) buildRule() parseRule {
 	case repeatNode:
 		rules := make([]parseRule, len(n.args))
 		for i, r := range n.args {
-			rules[i] = r.buildRule()
+			rules[i] = r.buildRule(g)
 		}
 		min_n := n.arg2
 		max_n := n.arg3
@@ -141,7 +141,7 @@ func (n *grammarNode) buildRule() parseRule {
 	case choiceNode:
 		rules := make([]parseRule, len(n.args))
 		for i, r := range n.args {
-			rules[i] = r.buildRule()
+			rules[i] = r.buildRule(g)
 		}
 		return func(p *Parser, s *parserState) bool {
 			for _, r := range rules {
@@ -156,7 +156,7 @@ func (n *grammarNode) buildRule() parseRule {
 	case sequenceNode:
 		rules := make([]parseRule, len(n.args))
 		for i, r := range n.args {
-			rules[i] = r.buildRule()
+			rules[i] = r.buildRule(g)
 		}
 		return func(p *Parser, s *parserState) bool {
 			for _, r := range rules {
@@ -348,6 +348,21 @@ func (g *Grammar) Repeat(min_t int, max_t int, stub func()) {
 	g.nb.append(a)
 }
 
+func (g *Grammar) Parser() (*Parser, error) {
+	rules := make(map[string]parseRule, len(g.rules))
+	start := g.Start
+
+	for k, v := range g.rules {
+		rules[k] = v.buildRule(g)
+	}
+
+	p := &Parser{
+		start: start,
+		rules: rules,
+	}
+	return p, nil
+}
+
 type Parser struct {
 	rules map[string]parseRule
 	start string
@@ -364,6 +379,19 @@ func (p *Parser) Accept(s string) bool {
 
 }
 
+func BuildGrammar(stub func(*Grammar)) (*Grammar, error) {
+	g := &Grammar{
+		rules: make(map[string]*grammarNode, 1),
+	}
+	stub(g)
+
+	if g.err != nil {
+		return nil, g.err
+	}
+
+	return g, nil
+}
+
 func BuildParser(stub func(*Grammar)) (*Parser, error) {
 	g := &Grammar{
 		rules: make(map[string]*grammarNode, 1),
@@ -374,16 +402,5 @@ func BuildParser(stub func(*Grammar)) (*Parser, error) {
 		return nil, g.err
 	}
 
-	rules := make(map[string]parseRule, len(g.rules))
-	start := g.Start
-
-	for k, v := range g.rules {
-		rules[k] = v.buildRule()
-	}
-
-	p := &Parser{
-		start: start,
-		rules: rules,
-	}
-	return p, nil
+	return g.Parser()
 }
