@@ -178,6 +178,7 @@ func (n *grammarNode) buildRule(g *Grammar) parseRule {
 }
 
 type nodeBuilder struct {
+	rule	*int
 	context string
 	args    []*grammarNode
 }
@@ -203,20 +204,25 @@ func (b *nodeBuilder) inRule() bool {
 type grammarError struct {
 	g       *Grammar
 	pos     int
-	rule    *int
 	message string
 	fatal   bool
 }
 
+type position struct {
+	file string
+	line int
+	rule *int
+}
+
 func (e *grammarError) Error() string {
 	p := e.g.posInfo[e.pos]
-	if e.rule != nil {
-		name := e.g.names[*e.rule]
-		rulePos := e.g.posInfo[e.g.rulePos[*e.rule]]
-		return fmt.Sprintf("%v: %v (inside %q at %v)", p, e.message, name, rulePos)
+	if p.rule != nil {
+		name := e.g.names[*p.rule]
+		rulePos := e.g.posInfo[e.g.rulePos[*p.rule]]
+		return fmt.Sprintf("%v:%v: %v (inside %q at %v:%v)", p.file, p.line, e.message, name, rulePos.file, rulePos.line)
 
 	} else {
-		return fmt.Sprintf("%v: %v", p, e.message)
+		return fmt.Sprintf("%v:%v: %v", p.file, p.line, e.message)
 
 	}
 }
@@ -236,7 +242,7 @@ type Grammar struct {
 	// list of pos for each numbered rule
 	rulePos []int
 	// list of positions
-	posInfo []string
+	posInfo []position
 
 	nb *nodeBuilder
 
@@ -250,8 +256,10 @@ func (g *Grammar) markPosition() int {
 	if ok {
 		base, _ := os.Getwd()
 		file, _ := filepath.Rel(base, file)
-		pos := fmt.Sprintf("%v:%v", file, no)
+		rule := g.nb.rule
+		pos := position{file:file, line:no, rule:rule}
 		p := len(g.posInfo)
+
 		g.posInfo = append(g.posInfo, pos)
 		return p
 	}
@@ -332,14 +340,22 @@ func (g *Grammar) shouldExit(pos int) bool {
 }
 
 func (g *Grammar) buildStub(context string, stub func()) *nodeBuilder {
-	newNb := &nodeBuilder{context: context}
 	oldNb := g.nb
+	newNb := &nodeBuilder{context: context, rule: oldNb.rule}
 	g.nb = newNb
 	stub()
 	g.nb = oldNb
 	return newNb
 }
 
+func (g *Grammar) buildRule(rule int, stub func()) *nodeBuilder {
+	oldNb := g.nb
+	newNb := &nodeBuilder{context: inDef, rule: &rule}
+	g.nb = newNb
+	stub()
+	g.nb = oldNb
+	return newNb
+}
 func (g *Grammar) Define(name string, stub func()) {
 	p := g.markPosition()
 	if g.err != nil {
@@ -358,15 +374,12 @@ func (g *Grammar) Define(name string, stub func()) {
 		return
 	}
 
-	r := g.buildStub(inDef, stub)
-	if g.err != nil {
-		return
-	}
-
-	pos := len(g.names)
+	ruleNum := len(g.names)
 	g.names = append(g.names, name)
-	g.nameIdx[name] = pos
+	g.nameIdx[name] = ruleNum
 	g.rulePos = append(g.rulePos, p)
+
+	r := g.buildRule(ruleNum, stub)
 	g.rules = append(g.rules, r.buildNode(p))
 }
 
