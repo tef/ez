@@ -2,7 +2,7 @@ package ez
 
 import (
 	"errors"
-	// "fmt"
+	"fmt"
 )
 
 const (
@@ -201,7 +201,38 @@ type Grammar struct {
 	names   []string
 	nameIdx map[string]*int
 	nb      *nodeBuilder
+	errors  []error
 	err     error
+}
+
+func (g *Grammar) Error(args ...any) {
+	o := fmt.Sprint(args...)
+	err := errors.New(o)
+	if g.err == nil {
+		g.err = err
+	}
+	g.errors = append(g.errors, err)
+}
+
+func (g *Grammar) Errorf(s string, args ...any) {
+	o := fmt.Sprintf(s, args...)
+	err := errors.New(o)
+	if g.err == nil {
+		g.err = err
+	}
+	g.errors = append(g.errors, err)
+}
+
+func (g *Grammar) Warn(args ...any) {
+	o := fmt.Sprint(args...)
+	err := errors.New(o)
+	g.errors = append(g.errors, err)
+}
+
+func (g *Grammar) Warnf(s string, args ...any) {
+	o := fmt.Sprintf(s, args...)
+	err := errors.New(o)
+	g.errors = append(g.errors, err)
 }
 
 func (g *Grammar) Define(name string, stub func()) {
@@ -210,12 +241,12 @@ func (g *Grammar) Define(name string, stub func()) {
 	}
 
 	if g.nb != nil {
-		g.err = errors.New("cant define inside a define")
+		g.Error("cant define inside a define")
 		return
 	}
 
 	if g.nameIdx[name] != nil {
-		g.err = errors.New("cant redefine")
+		g.Error("cant redefine")
 		return
 	}
 
@@ -241,7 +272,7 @@ func (g *Grammar) Call(name string) {
 		return
 	}
 	if g.nb == nil {
-		g.err = errors.New("called outside of definition")
+		g.Error("called outside of definition")
 		return
 	}
 	a := &grammarNode{kind: callNode, arg1: name}
@@ -253,11 +284,11 @@ func (g *Grammar) Literal(s ...string) {
 		return
 	}
 	if g.nb == nil {
-		g.err = errors.New("called outside of definition")
+		g.Error("called outside of definition")
 		return
 	}
 	if len(s) == 0 {
-		g.err = errors.New("missing operand")
+		g.Error("missing operand")
 	}
 
 	if len(s) == 1 {
@@ -278,7 +309,7 @@ func (g *Grammar) Choice(options ...func()) {
 		return
 	}
 	if g.nb == nil {
-		g.err = errors.New("called outside of definition")
+		g.Error("called outside of definition")
 		return
 	}
 
@@ -308,7 +339,7 @@ func (g *Grammar) Optional(stub func()) {
 		return
 	}
 	if g.nb == nil {
-		g.err = errors.New("called outside of definition")
+		g.Error("called outside of definition")
 		return
 	}
 
@@ -336,7 +367,7 @@ func (g *Grammar) Repeat(min_t int, max_t int, stub func()) {
 		return
 	}
 	if g.nb == nil {
-		g.err = errors.New("called outside of definition")
+		g.Error("called outside of definition")
 		return
 	}
 
