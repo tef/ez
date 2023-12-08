@@ -31,7 +31,8 @@ const (
 )
 
 const (
-	inGrammar  = ""
+	inOutside  = "not-inside-def"
+	inGrammar  = "inside-grammar"
 	inDef      = "inside-definition"
 	inChoice   = "inside-choice"
 	inOptional = "inside-optional"
@@ -194,6 +195,14 @@ func (b *nodeBuilder) append(a *grammarNode) {
 	b.args = append(b.args, a)
 }
 
+func (b *nodeBuilder) canDefine() bool {
+	return b != nil && b.context == inGrammar
+}
+
+func (b *nodeBuilder) insideDef() bool {
+	return b != nil && b.context != inGrammar
+}
+
 type Grammar struct {
 	Start      string
 	Whitespace []string
@@ -259,14 +268,21 @@ func (g *Grammar) Warnf(s string, args ...any) {
 	g.errors = append(g.errors, err)
 }
 
+func (g *Grammar) callStub(b *nodeBuilder, stub func()) {
+	oldNb := g.nb
+	g.nb = b
+	stub()
+	g.nb = oldNb
+}
+
 func (g *Grammar) Define(name string, stub func()) {
 	p := g.markPosition()
 	if g.err != nil {
 		return
 	}
 
-	if g.nb != nil {
-		g.Error("cant define inside a define")
+	if !g.nb.canDefine() {
+		g.Error("must call define inside grammar")
 		return
 	}
 
@@ -277,15 +293,13 @@ func (g *Grammar) Define(name string, stub func()) {
 
 	r := &nodeBuilder{
 		context: inDef,
-		args:    make([]*grammarNode, 0),
 	}
-	g.nb = r
-	stub()
-	g.nb = nil
 
+	g.callStub(r, stub)
 	if g.err != nil {
 		return
 	}
+
 	pos := len(g.names)
 	g.names = append(g.names, name)
 	g.nameIdx[name] = &pos
@@ -312,7 +326,7 @@ func (g *Grammar) Literal(s ...string) {
 	if g.err != nil {
 		return
 	}
-	if g.nb == nil {
+	if !g.nb.insideDef() {
 		g.Error("called outside of definition")
 		return
 	}
@@ -338,27 +352,24 @@ func (g *Grammar) Choice(options ...func()) {
 	if g.err != nil {
 		return
 	}
-	if g.nb == nil {
+	if !g.nb.insideDef() {
 		g.Error("called outside of definition")
 		return
 	}
 
 	args := make([]*grammarNode, len(options))
 	for i, stub := range options {
-		old_r := g.nb
-		new_r := &nodeBuilder{
+		r := &nodeBuilder{
 			context: inChoice,
-			args:    make([]*grammarNode, 0),
 		}
 
-		g.nb = new_r
-		stub()
-		g.nb = old_r
+		g.callStub(r, stub)
 
 		if g.err != nil {
 			return
 		}
-		args[i] = new_r.buildNode(p)
+
+		args[i] = r.buildNode(p)
 	}
 	a := &grammarNode{kind: choiceNode, args: args, pos: p}
 	g.nb.append(a)
@@ -369,27 +380,18 @@ func (g *Grammar) Optional(stub func()) {
 	if g.err != nil {
 		return
 	}
-	if g.nb == nil {
+	if !g.nb.insideDef() {
 		g.Error("called outside of definition")
 		return
 	}
-
-	old_r := g.nb
-	new_r := &nodeBuilder{
-		context: inOptional,
-		args:    make([]*grammarNode, 0),
-	}
-
-	g.nb = new_r
-	stub()
-	g.nb = old_r
+	r := &nodeBuilder{context: inOptional}
+	g.callStub(r, stub)
 
 	if g.err != nil {
 		return
 	}
 
-	args := new_r.args
-	a := &grammarNode{kind: optionalNode, args: args, pos: p}
+	a := &grammarNode{kind: optionalNode, args: r.args, pos: p}
 	g.nb.append(a)
 }
 
@@ -398,27 +400,19 @@ func (g *Grammar) Repeat(min_t int, max_t int, stub func()) {
 	if g.err != nil {
 		return
 	}
-	if g.nb == nil {
+	if !g.nb.insideDef() {
 		g.Error("called outside of definition")
 		return
 	}
 
-	old_r := g.nb
-	new_r := &nodeBuilder{
-		context: inRepeat,
-		args:    make([]*grammarNode, 0),
-	}
-
-	g.nb = new_r
-	stub()
-	g.nb = old_r
+	r := &nodeBuilder{context: inRepeat}
+	g.callStub(r, stub)
 
 	if g.err != nil {
 		return
 	}
 
-	args := new_r.args
-	a := &grammarNode{kind: repeatNode, args: args, arg2: min_t, arg3: max_t, pos: p}
+	a := &grammarNode{kind: repeatNode, args: r.args, arg2: min_t, arg3: max_t, pos: p}
 	g.nb.append(a)
 }
 
@@ -497,10 +491,13 @@ func (p *Parser) Accept(s string) bool {
 }
 
 func BuildGrammar(stub func(*Grammar)) (*Grammar, error) {
+	b := &nodeBuilder{
+		context: inGrammar,
+	}
 	g := &Grammar{
-		rules:   make([]*grammarNode, 0),
 		nameIdx: make(map[string]*int, 0),
 		callPos: make(map[string][]int, 0),
+		nb: b,
 	}
 	g.pos = g.markPosition()
 	stub(g)
@@ -513,10 +510,13 @@ func BuildGrammar(stub func(*Grammar)) (*Grammar, error) {
 }
 
 func BuildParser(stub func(*Grammar)) (*Parser, error) {
+	b := &nodeBuilder{
+		context: inGrammar,
+	}
 	g := &Grammar{
-		rules:   make([]*grammarNode, 0),
 		nameIdx: make(map[string]*int, 0),
 		callPos: make(map[string][]int, 0),
+		nb: b,
 	}
 	g.pos = g.markPosition()
 	stub(g)
