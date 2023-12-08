@@ -35,7 +35,7 @@ func TestParser(t *testing.T) {
 	})
 
 	if err != nil {
-		t.Fatalf("err\n%v", err)
+		t.Fatalf("error defining grammar:\n%v", err)
 	}
 
 	if !parser.Accept("true") {
