@@ -151,11 +151,11 @@ func TestParser(t *testing.T) {
 		g.Newline = []string{"\r\n", "\r", "\n"}
 
 		g.Define("expr", func() {
+			//g.Print("test")
 			g.Choice(func() {
 				g.Call("truerule")
 				g.Optional(func() {
 					g.Literal("y")
-					g.Print("test")
 				})
 			}, func() {
 				g.Call("falserule")
