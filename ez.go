@@ -331,11 +331,13 @@ func (g *Grammar) shouldExit(pos int) bool {
 
 }
 
-func (g *Grammar) callStub(b *nodeBuilder, stub func()) {
+func (g *Grammar) buildStub(context string, stub func()) *nodeBuilder {
+	newNb := &nodeBuilder{context: context}
 	oldNb := g.nb
-	g.nb = b
+	g.nb = newNb
 	stub()
 	g.nb = oldNb
+	return newNb
 }
 
 func (g *Grammar) Define(name string, stub func()) {
@@ -356,11 +358,7 @@ func (g *Grammar) Define(name string, stub func()) {
 		return
 	}
 
-	r := &nodeBuilder{
-		context: inDef,
-	}
-
-	g.callStub(r, stub)
+	r := g.buildStub(inDef, stub)
 	if g.err != nil {
 		return
 	}
@@ -412,11 +410,7 @@ func (g *Grammar) Choice(options ...func()) {
 
 	args := make([]*grammarNode, len(options))
 	for i, stub := range options {
-		r := &nodeBuilder{
-			context: inChoice,
-		}
-
-		g.callStub(r, stub)
+		r := g.buildStub(inChoice, stub)
 
 		if g.err != nil {
 			return
@@ -433,9 +427,7 @@ func (g *Grammar) Optional(stub func()) {
 	if g.shouldExit(p) {
 		return
 	}
-	r := &nodeBuilder{context: inOptional}
-	g.callStub(r, stub)
-
+	r := g.buildStub(inOptional, stub)
 	if g.err != nil {
 		return
 	}
@@ -450,8 +442,7 @@ func (g *Grammar) Repeat(min_t int, max_t int, stub func()) {
 		return
 	}
 
-	r := &nodeBuilder{context: inRepeat}
-	g.callStub(r, stub)
+	r := g.buildStub(inRepeat, stub)
 
 	if g.err != nil {
 		return
