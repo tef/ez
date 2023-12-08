@@ -40,37 +40,37 @@ things like document markup formats.
 
 `ez` is a little different from other parsing libraries. 
 
-Instead of using combinators, like:
-
-```
-rule := oc.And(oc.Literal("foo"), oc.Literal("bar")
-```
-
-or a new language inside string:
-
-```
-rule := oc.Rule(" 'foo',  'bar' ")
-```
-
-`ez` uses callbacks to build up nested structures:
+Instead of using combinators, like `rule := oc.And(oc.Literal("foo"), oc.Literal("bar")`,
+or a new language inside string, `rule := oc.Rule(" 'foo',  'bar' ")`, 
+`ez` uses callbacks to build up nested structures, like so:
 
 ```
 ez.Sequence(func(){
     ez.Literal("foo")
     ez.Literal("bar")
-}
+})
 ```
 
-It's a little more verbose, but it's a little less error prone, and easy
-to introduce new operators.
+It's a little more verbose, but it's a little less error prone. It lets you write
+more interesting grammars than you could in other methods, and you don't need to learn
+a new syntax either.
 
-The parser is a little different, too.
+`ez` also takes a different approach to parsing algorithms
 
-`ez` currently works like a scannerless
-recursive descent parser. That's a fancy way of saying you don't need to define
-a tokenizer or lexer, and that the parser works from top to bottom, from left
-to right.
+`ez` currently works like a scannerless recursive descent parser. That's a fancy way 
+of saying you don't need to define a tokenizer or lexer, and that the parser works
+from top to bottom, from left to right.
 
-It also provides built in operators for handling things like indentation, matching
-delimiters, and other features of markup languages.
+it's very much like a parsing evaluation grammar, but there's no backtracking, 
+or memoization. that's a fancy way of saying that if you have "(a or b) and c", and
+a parses, but c doesn't, the parser will not try parsing b.
+
+`ez` provides built in operators for handling things like indentation, matching
+delimiters, and other features of markup languages. there's also operators
+for debugging your grammar, too.
+
+# other work
+
+`ez` is a port of a python parser-generator, used to write a peg-like gr
+
 
