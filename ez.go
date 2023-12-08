@@ -2,7 +2,7 @@ package ez
 
 import (
 	"errors"
-	"fmt"
+	// "fmt"
 )
 
 const (
@@ -30,9 +30,11 @@ const (
 )
 
 const (
-	inGrammar = ""
-	inDef     = "inside-definition"
-	inChoice  = "inside-choice"
+	inGrammar  = ""
+	inDef      = "inside-definition"
+	inChoice   = "inside-choice"
+	inOptional = "inside-optional"
+	inRepeat = "inside-repeat"
 )
 
 type parseRule func(*Parser, *parserState) bool
@@ -63,7 +65,6 @@ func (s *parserState) merge(new *parserState) {
 }
 
 func (s *parserState) advance(v string) bool {
-	fmt.Println("advance", s.offset)
 	if len(v)+s.offset > len(s.buf) {
 		return false
 	}
@@ -95,6 +96,48 @@ func (n *grammarNode) buildRule() parseRule {
 			r := p.rules[name]
 			return r(p, s)
 		}
+	case optionalNode:
+		rules := make([]parseRule, len(n.args))
+		for i, r := range n.args {
+			rules[i] = r.buildRule()
+		}
+		return func(p *Parser, s *parserState) bool {
+			s1 := s.clone()
+			for _, r := range rules {
+				if !r(p, s1) {
+					return true
+				}
+			}
+			s.merge(s1)
+			return true
+		}
+
+	case repeatNode:
+		rules := make([]parseRule, len(n.args))
+		for i, r := range n.args {
+			rules[i] = r.buildRule()
+		}
+		min_n := n.arg2
+		max_n := n.arg3
+
+		return func(p *Parser, s *parserState) bool {
+			c := 0
+			for {
+				s1 := s.clone()
+				for _, r := range rules {
+					if !r(p, s1) {
+						return c >= min_n
+					}
+				}
+				s.merge(s1)
+				c += 1
+				if max_n != 0 && c >= max_n {
+					break
+				}
+			}
+			return true
+		}
+
 	case choiceNode:
 		rules := make([]parseRule, len(n.args))
 		for i, r := range n.args {
@@ -102,7 +145,6 @@ func (n *grammarNode) buildRule() parseRule {
 		}
 		return func(p *Parser, s *parserState) bool {
 			for _, r := range rules {
-				fmt.Println("choice")
 				s1 := s.clone()
 				if r(p, s1) {
 					s.merge(s1)
@@ -126,7 +168,6 @@ func (n *grammarNode) buildRule() parseRule {
 		}
 	default:
 		return func(p *Parser, s *parserState) bool {
-			fmt.Println(n.kind, "fake")
 			return true
 		}
 	}
@@ -152,10 +193,10 @@ func (b *nodeBuilder) append(a *grammarNode) {
 }
 
 type Grammar struct {
-	Start string
+	Start      string
 	Whitespace []string
-	Newline []string
-	
+	Newline    []string
+
 	rules map[string]*grammarNode
 	nb    *nodeBuilder
 	err   error
@@ -251,6 +292,62 @@ func (g *Grammar) Choice(options ...func()) {
 	g.nb.append(a)
 }
 
+func (g *Grammar) Optional(stub func()) {
+	if g.err != nil {
+		return
+	}
+	if g.nb == nil {
+		g.err = errors.New("called outside of definition")
+		return
+	}
+
+	old_r := g.nb
+	new_r := &nodeBuilder{
+		context: inOptional,
+		args:    make([]*grammarNode, 0),
+	}
+
+	g.nb = new_r
+	stub()
+	g.nb = old_r
+
+	if g.err != nil {
+		return
+	}
+
+	args := new_r.args
+	a := &grammarNode{kind: optionalNode, args: args}
+	g.nb.append(a)
+}
+
+func (g *Grammar) Repeat(min_t int, max_t int, stub func()) {
+	if g.err != nil {
+		return
+	}
+	if g.nb == nil {
+		g.err = errors.New("called outside of definition")
+		return
+	}
+
+	old_r := g.nb
+	new_r := &nodeBuilder{
+		context: inRepeat,
+		args:    make([]*grammarNode, 0),
+	}
+
+	g.nb = new_r
+	stub()
+	g.nb = old_r
+
+	if g.err != nil {
+		return
+	}
+
+	args := new_r.args
+	a := &grammarNode{kind: repeatNode, args: args, arg2: min_t, arg3: max_t}
+	g.nb.append(a)
+}
+
 type Parser struct {
 	rules map[string]parseRule
 	start string
@@ -267,21 +364,20 @@ func (p *Parser) Accept(s string) bool {
 
 }
 
-func BuildParser(stub func(*Grammar)) *Parser {
+func BuildParser(stub func(*Grammar)) (*Parser, error) {
 	g := &Grammar{
 		rules: make(map[string]*grammarNode, 1),
 	}
 	stub(g)
 
 	if g.err != nil {
-		return &Parser{Err: g.err}
+		return nil, g.err
 	}
 
 	rules := make(map[string]parseRule, len(g.rules))
 	start := g.Start
 
 	for k, v := range g.rules {
-		fmt.Println("rule", k, v.kind, v.args)
 		rules[k] = v.buildRule()
 	}
 
@@ -289,5 +385,5 @@ func BuildParser(stub func(*Grammar)) *Parser {
 		start: start,
 		rules: rules,
 	}
-	return p
+	return p, nil
 }

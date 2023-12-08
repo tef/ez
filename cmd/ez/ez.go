@@ -7,12 +7,17 @@ import (
 )
 
 func main() {
-	parser := ez.BuildParser(func(g *ez.Grammar) {
+	parser, err := ez.BuildParser(func(g *ez.Grammar) {
 		g.Start = "expr"
+		g.Whitespace = []string{" ", "\t"}
+		g.Newline = []string{"\r\n", "\r", "\n"}
 
 		g.Define("expr", func() {
 			g.Choice(func() {
 				g.Call("truerule")
+				g.Optional(func() {
+					g.Literal("y")
+				})
 			}, func() {
 				g.Call("falserule")
 			})
@@ -27,8 +32,8 @@ func main() {
 		})
 	})
 
-	if parser.Err != nil {
-		fmt.Println("err:", parser.Err)
+	if err != nil {
+		fmt.Println("err:", err)
 		return
 	}
 
@@ -38,12 +43,16 @@ func main() {
 	}
 
 	fmt.Println("-")
-
 	if parser.Accept("false") {
 		fmt.Println("parsed false!")
 	}
+
 	fmt.Println("-")
 	if !parser.Accept("blue") {
 		fmt.Println("didn't parse! (good)")
+	}
+	fmt.Println("-")
+	if parser.Accept("truey") {
+		fmt.Println("parsed truey!")
 	}
 }
