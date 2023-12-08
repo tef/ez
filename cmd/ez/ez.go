@@ -6,7 +6,6 @@ import (
 	"github.com/tef/ez"
 )
 
-
 func main() {
 	parser := ez.BuildParser(func(g *ez.Grammar) {
 		g.Start = "expr"

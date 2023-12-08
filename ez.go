@@ -6,10 +6,27 @@ import (
 )
 
 const (
-	literal  = "Literal"
-	choice   = "Choice"
-	sequence = "Sequence"
-	call     = "Call"
+	callNode    = "Call"
+	literalNode = "Literal"
+
+	whitespaceNode  = "Whitespace"
+	newlineNode     = "Newline"
+	partialTabNOde  = "PartialTab"
+	startOfLineNode = "StartOfLine"
+	endOfLineNode   = "EndOfLine"
+	endOfFileNode   = "EndOfFile"
+
+	choiceNode    = "Choice"
+	sequenceNode  = "Sequence"
+	captureNode   = "Capture"
+	lookaheadNode = "Lookahead"
+	rejectNode    = "Reject"
+	rangeNode     = "Range"
+	optionalNode  = "Optional"
+	repeatNode    = "Repeat"
+
+	indentNode = "Indent"
+	dedentNode = "Dedent"
 )
 
 const (
@@ -68,17 +85,17 @@ type grammarNode struct {
 
 func (n *grammarNode) buildRule() parseRule {
 	switch n.kind {
-	case literal:
+	case literalNode:
 		return func(p *Parser, s *parserState) bool {
 			return s.advance(n.arg1)
 		}
-	case call:
+	case callNode:
 		name := n.arg1
 		return func(p *Parser, s *parserState) bool {
 			r := p.rules[name]
 			return r(p, s)
 		}
-	case choice:
+	case choiceNode:
 		rules := make([]parseRule, len(n.args))
 		for i, r := range n.args {
 			rules[i] = r.buildRule()
@@ -94,7 +111,7 @@ func (n *grammarNode) buildRule() parseRule {
 			}
 			return false
 		}
-	case sequence:
+	case sequenceNode:
 		rules := make([]parseRule, len(n.args))
 		for i, r := range n.args {
 			rules[i] = r.buildRule()
@@ -127,7 +144,7 @@ func (b *nodeBuilder) buildNode() *grammarNode {
 	if len(b.args) == 1 {
 		return b.args[0]
 	}
-	return &grammarNode{kind: sequence, args: b.args}
+	return &grammarNode{kind: sequenceNode, args: b.args}
 }
 
 func (b *nodeBuilder) append(a *grammarNode) {
@@ -136,6 +153,9 @@ func (b *nodeBuilder) append(a *grammarNode) {
 
 type Grammar struct {
 	Start string
+	Whitespace []string
+	Newline []string
+	
 	rules map[string]*grammarNode
 	nb    *nodeBuilder
 	err   error
@@ -172,7 +192,7 @@ func (g *Grammar) Call(name string) {
 		g.err = errors.New("called outside of definition")
 		return
 	}
-	a := &grammarNode{kind: call, arg1: name}
+	a := &grammarNode{kind: callNode, arg1: name}
 	g.nb.append(a)
 }
 
@@ -189,14 +209,14 @@ func (g *Grammar) Literal(s ...string) {
 	}
 
 	if len(s) == 1 {
-		a := &grammarNode{kind: literal, arg1: s[0]}
+		a := &grammarNode{kind: literalNode, arg1: s[0]}
 		g.nb.append(a)
 	} else {
 		args := make([]*grammarNode, len(s))
 		for i, v := range s {
-			args[i] = &grammarNode{kind: literal, arg1: v}
+			args[i] = &grammarNode{kind: literalNode, arg1: v}
 		}
-		a := &grammarNode{kind: choice, args: args}
+		a := &grammarNode{kind: choiceNode, args: args}
 		g.nb.append(a)
 	}
 }
@@ -227,7 +247,7 @@ func (g *Grammar) Choice(options ...func()) {
 		}
 		args[i] = new_r.buildNode()
 	}
-	a := &grammarNode{kind: choice, args: args}
+	a := &grammarNode{kind: choiceNode, args: args}
 	g.nb.append(a)
 }
 
@@ -271,4 +291,3 @@ func BuildParser(stub func(*Grammar)) *Parser {
 	}
 	return p
 }
-
