@@ -3,6 +3,8 @@ package ez
 import (
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"runtime"
 )
 
@@ -230,6 +232,8 @@ type Grammar struct {
 func (g *Grammar) markPosition() int {
 	_, file, no, ok := runtime.Caller(2)
 	if ok {
+		base, _ := os.Getwd()
+		file, _ := filepath.Rel(base, file)
 		pos := fmt.Sprintf("%v:%v", file, no)
 		p := len(g.posInfo)
 		g.posInfo = append(g.posInfo, pos)
