@@ -9,6 +9,8 @@ import (
 )
 
 const (
+	printNode = "DebugPrint"
+
 	callNode    = "Call"
 	literalNode = "Literal"
 
@@ -85,10 +87,20 @@ type grammarNode struct {
 	arg1 string
 	arg2 int
 	arg3 int
+	message []any
 }
 
 func (n *grammarNode) buildRule(g *Grammar) parseRule {
 	switch n.kind {
+	case printNode:
+		p := g.posInfo[n.pos]
+		r := g.names[*p.rule]
+		prefix := fmt.Sprintf("%v:%v", p.file, p.line)
+		return func(p *Parser, s *parserState) bool {
+			msg := fmt.Sprint(n.message...)
+			fmt.Printf("%v: g.Print(%q) called (inside %q at pos %v)\n", prefix, msg, r, s.offset)
+			return true
+		}
 	case literalNode:
 		return func(p *Parser, s *parserState) bool {
 			return s.advance(n.arg1)
@@ -251,24 +263,6 @@ type Grammar struct {
 	err    error
 }
 
-func (g *Grammar) markPosition() int {
-	_, file, no, ok := runtime.Caller(2)
-	if ok {
-		base, _ := os.Getwd()
-		file, _ := filepath.Rel(base, file)
-		var rule *int = nil
-		if g.nb != nil {
-			rule = g.nb.rule
-		}
-		pos := position{file: file, line: no, rule: rule}
-		p := len(g.posInfo)
-
-		g.posInfo = append(g.posInfo, pos)
-		return p
-	}
-	return -1
-}
-
 func (g *Grammar) Err() error {
 	return g.err
 }
@@ -326,6 +320,24 @@ func (g *Grammar) Warnf(pos int, s string, args ...any) {
 	g.errors = append(g.errors, err)
 }
 
+func (g *Grammar) markPosition() int {
+	_, file, no, ok := runtime.Caller(2)
+	if !ok {
+		return -1
+	}
+	base, _ := os.Getwd()
+	file, _ = filepath.Rel(base, file)
+	var rule *int = nil
+	if g.nb != nil {
+		rule = g.nb.rule
+	}
+	pos := position{file: file, line: no, rule: rule}
+	p := len(g.posInfo)
+
+	g.posInfo = append(g.posInfo, pos)
+	return p
+}
+
 func (g *Grammar) shouldExit(pos int) bool {
 	if g.err != nil {
 		return true
@@ -370,7 +382,6 @@ func (g *Grammar) buildGrammar(stub func(*Grammar)) error {
 	}
 	g.nameIdx = make(map[string]int, 0)
 	g.callPos = make(map[string][]int, 0)
-	g.pos = g.markPosition()
 	g.nb = &nodeBuilder{context: inGrammar}
 
 	stub(g)
@@ -404,6 +415,15 @@ func (g *Grammar) Define(name string, stub func()) {
 
 	r := g.buildRule(ruleNum, stub)
 	g.rules = append(g.rules, r.buildNode(p))
+}
+
+func (g *Grammar) Print(args ...any) {
+	p := g.markPosition()
+	if g.shouldExit(p) {
+		return
+	}
+	a := &grammarNode{kind: printNode, message: args, pos: p}
+	g.nb.append(a)
 }
 
 func (g *Grammar) Call(name string) {
@@ -582,6 +602,7 @@ func (p *Parser) testRule(name string, accept []string, reject []string) bool {
 
 func BuildGrammar(stub func(*Grammar)) (*Grammar, error) {
 	g := &Grammar{}
+	g.pos = g.markPosition()
 	err := g.buildGrammar(stub)
 	if err != nil {
 		return nil, err
@@ -591,6 +612,7 @@ func BuildGrammar(stub func(*Grammar)) (*Grammar, error) {
 
 func BuildParser(stub func(*Grammar)) (*Parser, error) {
 	g := &Grammar{}
+	g.pos = g.markPosition()
 	err := g.buildGrammar(stub)
 	if err != nil {
 		return nil, err

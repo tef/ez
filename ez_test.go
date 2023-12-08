@@ -155,6 +155,7 @@ func TestParser(t *testing.T) {
 				g.Call("truerule")
 				g.Optional(func() {
 					g.Literal("y")
+					g.Print("test")
 				})
 			}, func() {
 				g.Call("falserule")
