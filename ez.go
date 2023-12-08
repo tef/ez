@@ -178,7 +178,7 @@ func (n *grammarNode) buildRule(g *Grammar) parseRule {
 }
 
 type nodeBuilder struct {
-	rule	*int
+	rule    *int
 	context string
 	args    []*grammarNode
 }
@@ -256,8 +256,11 @@ func (g *Grammar) markPosition() int {
 	if ok {
 		base, _ := os.Getwd()
 		file, _ := filepath.Rel(base, file)
-		rule := g.nb.rule
-		pos := position{file:file, line:no, rule:rule}
+		var rule *int = nil
+		if g.nb != nil {
+			rule = g.nb.rule
+		}
+		pos := position{file: file, line: no, rule: rule}
 		p := len(g.posInfo)
 
 		g.posInfo = append(g.posInfo, pos)
@@ -486,10 +489,7 @@ func (g *Grammar) Check() error {
 
 	if g.Start == "" {
 		g.Error(g.pos, "starting rule undefined")
-	}
-
-	_, ok := g.nameIdx[g.Start]
-	if !ok {
+	} else if _, ok := g.nameIdx[g.Start]; !ok {
 		g.Errorf(g.pos, "starting rule %q is missing", g.Start)
 	}
 
@@ -546,6 +546,7 @@ func BuildGrammar(stub func(*Grammar)) (*Grammar, error) {
 	}
 	g.pos = g.markPosition()
 	stub(g)
+	g.nb = nil
 
 	if g.Check() != nil {
 		return nil, g.err
@@ -565,6 +566,7 @@ func BuildParser(stub func(*Grammar)) (*Parser, error) {
 	}
 	g.pos = g.markPosition()
 	stub(g)
+	g.nb = nil
 
 	return g.Parser()
 }
