@@ -102,6 +102,15 @@ func TestErrors(t *testing.T) {
 	} else {
 		t.Logf("test grammar raised error: %v", g.err)
 	}
+	// calling builders outside should fail
+	g = &Grammar{}
+	g.Define("expr2", func() {})
+
+	if g.err == nil {
+		t.Error("define should raise error")
+	} else {
+		t.Logf("test grammar raised error: %v", g.err)
+	}
 
 }
 
