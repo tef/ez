@@ -16,26 +16,26 @@ func TestParser(t *testing.T) {
 
 		g.Define("expr", func() {
 			g.Choice(func() {
-				g.Call("truerule")
+				g.Call("true rule")
 				g.Optional(func() {
 					g.Literal("y")
 				})
 			}, func() {
-				g.Call("falserule")
+				g.Call("false rule")
 			})
 		})
 
-		g.Define("truerule", func() {
+		g.Define("true rule", func() {
 			g.Literal("true")
 		})
 
-		g.Define("falserule", func() {
+		g.Define("false rule", func() {
 			g.Literal("false")
 		})
 	})
 
 	if err != nil {
-		t.Fatalf("err: %v", err)
+		t.Fatalf("err\n%v", err)
 	}
 
 	if !parser.Accept("true") {

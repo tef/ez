@@ -3,6 +3,7 @@ package ez
 import (
 	"errors"
 	"fmt"
+	"runtime"
 )
 
 const (
@@ -76,6 +77,7 @@ func (s *parserState) advance(v string) bool {
 }
 
 type grammarNode struct {
+	pos  int
 	kind string
 	args []*grammarNode
 	arg1 string
@@ -178,14 +180,14 @@ type nodeBuilder struct {
 	args    []*grammarNode
 }
 
-func (b *nodeBuilder) buildNode() *grammarNode {
+func (b *nodeBuilder) buildNode(pos int) *grammarNode {
 	if len(b.args) == 0 {
 		return nil
 	}
 	if len(b.args) == 1 {
 		return b.args[0]
 	}
-	return &grammarNode{kind: sequenceNode, args: b.args}
+	return &grammarNode{kind: sequenceNode, args: b.args, pos: pos}
 }
 
 func (b *nodeBuilder) append(a *grammarNode) {
@@ -200,9 +202,31 @@ type Grammar struct {
 	rules   []*grammarNode
 	names   []string
 	nameIdx map[string]*int
-	nb      *nodeBuilder
-	errors  []error
-	err     error
+
+	// list of pos for each name
+	callPos map[string][]int
+
+	// list of pos for each numbered rule
+	rulePos []int
+	// list of positions
+	posInfo []string
+
+	nb *nodeBuilder
+
+	pos    int
+	errors []error
+	err    error
+}
+
+func (g *Grammar) markPosition() int {
+	_, file, no, ok := runtime.Caller(2)
+	if ok {
+		pos := fmt.Sprintf("%v:%v", file, no)
+		p := len(g.posInfo)
+		g.posInfo = append(g.posInfo, pos)
+		return p
+	}
+	return -1
 }
 
 func (g *Grammar) Error(args ...any) {
@@ -236,6 +260,7 @@ func (g *Grammar) Warnf(s string, args ...any) {
 }
 
 func (g *Grammar) Define(name string, stub func()) {
+	p := g.markPosition()
 	if g.err != nil {
 		return
 	}
@@ -264,10 +289,12 @@ func (g *Grammar) Define(name string, stub func()) {
 	pos := len(g.names)
 	g.names = append(g.names, name)
 	g.nameIdx[name] = &pos
-	g.rules = append(g.rules, r.buildNode())
+	g.rulePos = append(g.rulePos, p)
+	g.rules = append(g.rules, r.buildNode(p))
 }
 
 func (g *Grammar) Call(name string) {
+	p := g.markPosition()
 	if g.err != nil {
 		return
 	}
@@ -275,11 +302,13 @@ func (g *Grammar) Call(name string) {
 		g.Error("called outside of definition")
 		return
 	}
-	a := &grammarNode{kind: callNode, arg1: name}
+	g.callPos[name] = append(g.callPos[name], p)
+	a := &grammarNode{kind: callNode, arg1: name, pos: p}
 	g.nb.append(a)
 }
 
 func (g *Grammar) Literal(s ...string) {
+	p := g.markPosition()
 	if g.err != nil {
 		return
 	}
@@ -292,19 +321,20 @@ func (g *Grammar) Literal(s ...string) {
 	}
 
 	if len(s) == 1 {
-		a := &grammarNode{kind: literalNode, arg1: s[0]}
+		a := &grammarNode{kind: literalNode, arg1: s[0], pos: p}
 		g.nb.append(a)
 	} else {
 		args := make([]*grammarNode, len(s))
 		for i, v := range s {
-			args[i] = &grammarNode{kind: literalNode, arg1: v}
+			args[i] = &grammarNode{kind: literalNode, arg1: v, pos: p}
 		}
-		a := &grammarNode{kind: choiceNode, args: args}
+		a := &grammarNode{kind: choiceNode, args: args, pos: p}
 		g.nb.append(a)
 	}
 }
 
 func (g *Grammar) Choice(options ...func()) {
+	p := g.markPosition()
 	if g.err != nil {
 		return
 	}
@@ -328,13 +358,14 @@ func (g *Grammar) Choice(options ...func()) {
 		if g.err != nil {
 			return
 		}
-		args[i] = new_r.buildNode()
+		args[i] = new_r.buildNode(p)
 	}
-	a := &grammarNode{kind: choiceNode, args: args}
+	a := &grammarNode{kind: choiceNode, args: args, pos: p}
 	g.nb.append(a)
 }
 
 func (g *Grammar) Optional(stub func()) {
+	p := g.markPosition()
 	if g.err != nil {
 		return
 	}
@@ -358,11 +389,12 @@ func (g *Grammar) Optional(stub func()) {
 	}
 
 	args := new_r.args
-	a := &grammarNode{kind: optionalNode, args: args}
+	a := &grammarNode{kind: optionalNode, args: args, pos: p}
 	g.nb.append(a)
 }
 
 func (g *Grammar) Repeat(min_t int, max_t int, stub func()) {
+	p := g.markPosition()
 	if g.err != nil {
 		return
 	}
@@ -386,17 +418,57 @@ func (g *Grammar) Repeat(min_t int, max_t int, stub func()) {
 	}
 
 	args := new_r.args
-	a := &grammarNode{kind: repeatNode, args: args, arg2: min_t, arg3: max_t}
+	a := &grammarNode{kind: repeatNode, args: args, arg2: min_t, arg3: max_t, pos: p}
 	g.nb.append(a)
 }
 
+func (g *Grammar) Check() error {
+	if g.err != nil {
+		return g.err
+	}
+	for name, pos := range g.callPos {
+		if g.nameIdx[name] == nil {
+			for _, p := range pos {
+				msg := g.posInfo[p]
+				g.Error(msg, ": missing rule, ", name)
+			}
+		}
+	}
+
+	for n, name := range g.names {
+		if name != g.Start && g.callPos[name] == nil {
+			p := g.rulePos[n]
+			msg := g.posInfo[p]
+			g.Error(msg, ": unused rule, ", name)
+		}
+	}
+
+	if g.Start == "" {
+		pos := g.pos
+		g.Error(pos, "starting rule undefined")
+	}
+
+	_, ok := g.nameIdx[g.Start]
+	if !ok {
+		pos := g.pos
+		g.Error(pos, ": starting rule ", g.Start, "is missing")
+	}
+
+	return g.err
+}
+
 func (g *Grammar) Parser() (*Parser, error) {
+	if g.Check() != nil {
+		return nil, g.err
+	}
+
 	rules := make([]parseRule, len(g.rules))
-	start := g.nameIdx[g.Start]
 
 	for k, v := range g.rules {
 		rules[k] = v.buildRule(g)
 	}
+
+	start := g.nameIdx[g.Start]
 
 	p := &Parser{
 		start:   *start,
@@ -428,10 +500,12 @@ func BuildGrammar(stub func(*Grammar)) (*Grammar, error) {
 	g := &Grammar{
 		rules:   make([]*grammarNode, 0),
 		nameIdx: make(map[string]*int, 0),
+		callPos: make(map[string][]int, 0),
 	}
+	g.pos = g.markPosition()
 	stub(g)
 
-	if g.err != nil {
+	if g.Check() != nil {
 		return nil, g.err
 	}
 
@@ -442,12 +516,10 @@ func BuildParser(stub func(*Grammar)) (*Parser, error) {
 	g := &Grammar{
 		rules:   make([]*grammarNode, 0),
 		nameIdx: make(map[string]*int, 0),
+		callPos: make(map[string][]int, 0),
 	}
+	g.pos = g.markPosition()
 	stub(g)
-
-	if g.err != nil {
-		return nil, g.err
-	}
 
 	return g.Parser()
 }
