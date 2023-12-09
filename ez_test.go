@@ -147,18 +147,24 @@ func TestParser(t *testing.T) {
 
 	parser, err = BuildParser(func(g *Grammar) {
 		g.Start = "expr"
-		g.Whitespace = []string{" ", "\t"}
-		g.Newline = []string{"\r\n", "\r", "\n"}
+		g.Whitespaces = []string{" ", "\t"}
+		g.Newlines = []string{"\r\n", "\r", "\n"}
 
 		g.Define("expr", func() {
 			//g.Print("test")
 			g.Choice(func() {
 				g.Call("truerule")
-				g.Optional(func() {
-					g.Literal("y")
-				})
 			}, func() {
 				g.Call("falserule")
+			}, func() {
+				g.Optional(func() {
+					g.Literal("1")
+				})
+				g.Literal("2")
+				g.Optional(func() {
+					g.Literal("3")
+				})
+				g.Literal("4")
 			})
 		})
 
@@ -186,8 +192,17 @@ func TestParser(t *testing.T) {
 		if parser.testParse("blue") {
 			t.Error("shouldn't parse blue")
 		}
-		if !parser.testParse("truey") {
-			t.Error("didn't parse truey")
+		if !parser.testParse("24") {
+			t.Error("didn't parse 24")
+		}
+		if !parser.testParse("234") {
+			t.Error("didn't parse 234")
+		}
+		if !parser.testParse("124") {
+			t.Error("didn't parse 124")
+		}
+		if !parser.testParse("1234") {
+			t.Error("didn't parse 1234")
 		}
 	}
 }

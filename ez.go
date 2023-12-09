@@ -9,26 +9,31 @@ import (
 )
 
 const (
-	printNode = "DebugPrint"
+	printNode = "Debug.Print"
+	traceNode = "Debug.Trace"
 
 	callNode    = "Call"
 	literalNode = "Literal"
 
-	whitespaceNode  = "Whitespace"
-	newlineNode     = "Newline"
-	partialTabNOde  = "PartialTab"
+	whitespaceNode = "Whitespace"
+	newlineNode    = "Newline"
+	partialTabNode = "PartialTab"
+
 	startOfLineNode = "StartOfLine"
 	endOfLineNode   = "EndOfLine"
+	startOfFileNode = "StartOfFie"
 	endOfFileNode   = "EndOfFile"
 
-	choiceNode    = "Choice"
-	sequenceNode  = "Sequence"
+	choiceNode   = "Choice"
+	sequenceNode = "Sequence"
+
 	captureNode   = "Capture"
 	lookaheadNode = "Lookahead"
 	rejectNode    = "Reject"
-	rangeNode     = "Range"
-	optionalNode  = "Optional"
-	repeatNode    = "Repeat"
+
+	rangeNode    = "Range"
+	optionalNode = "Optional"
+	repeatNode   = "Repeat"
 
 	indentNode = "Indent"
 	dedentNode = "Dedent"
@@ -40,6 +45,7 @@ const (
 	inChoice   = "inside-choice"
 	inOptional = "inside-optional"
 	inRepeat   = "inside-repeat"
+	inTrace    = "inside-trace"
 )
 
 type parseRule func(*Parser, *parserState) bool
@@ -47,6 +53,7 @@ type parseRule func(*Parser, *parserState) bool
 type parserState struct {
 	buf    string
 	offset int
+
 	// column int
 	// indent_column int
 	// for when we match n whitespace against a tab
@@ -80,13 +87,22 @@ func (s *parserState) advance(v string) bool {
 	return false
 }
 
+func (s *parserState) advanceAny(o []string) bool {
+	for _, v := range o {
+		if s.advance(v) {
+			return true
+		}
+	}
+	return false
+}
+
 type grammarNode struct {
-	pos  int
-	kind string
-	args []*grammarNode
-	arg1 string
-	arg2 int
-	arg3 int
+	pos     int
+	kind    string
+	args    []*grammarNode
+	arg1    string
+	arg2    int
+	arg3    int
 	message []any
 }
 
@@ -101,6 +117,71 @@ func (n *grammarNode) buildRule(g *Grammar) parseRule {
 			fmt.Printf("%v: g.Print(%q) called (inside %q at pos %v)\n", prefix, msg, r, s.offset)
 			return true
 		}
+	case traceNode:
+		p := g.posInfo[n.pos]
+		r := g.names[*p.rule]
+		prefix := fmt.Sprintf("%v:%v", p.file, p.line)
+
+		rules := make([]parseRule, len(n.args))
+		for i, r := range n.args {
+			rules[i] = r.buildRule(g)
+		}
+
+		return func(p *Parser, s *parserState) bool {
+			fmt.Printf("%v: g.Trace() called (inside %q at pos %v)\n", prefix, r, s.offset)
+			result := true
+
+			s1 := s.clone()
+			for _, v := range rules {
+				if !v(p, s1) {
+					result = false
+					break
+				}
+			}
+			if result {
+				s.merge(s1)
+				fmt.Printf("%v: g.Trace() exiting (inside %q at pos %v)\n", prefix, r, s.offset)
+			} else {
+				fmt.Printf("%v: g.Trace() failing (inside %q at pos %v)\n", prefix, r, s.offset)
+			}
+			return result
+		}
+
+	// case partialTabNode
+	// case indentNode
+	// case dedentNode
+
+	case whitespaceNode:
+		return func(p *Parser, s *parserState) bool {
+			for {
+				if !s.advanceAny(g.Whitespaces) {
+					break
+				}
+			}
+			return true
+		}
+	case newlineNode:
+		return func(p *Parser, s *parserState) bool {
+			return s.advanceAny(g.Newlines)
+		}
+
+	case startOfLineNode:
+		return func(p *Parser, s *parserState) bool {
+			return true // column = 0
+		}
+	case endOfLineNode:
+		return func(p *Parser, s *parserState) bool {
+			return s.advanceAny(g.Newlines)
+		}
+	case startOfFileNode:
+		return func(p *Parser, s *parserState) bool {
+			return s.offset == 0
+		}
+	case endOfFileNode:
+		return func(p *Parser, s *parserState) bool {
+			return s.offset == len(s.buf)
+		}
+
 	case literalNode:
 		return func(p *Parser, s *parserState) bool {
 			return s.advance(n.arg1)
@@ -138,15 +219,18 @@ func (n *grammarNode) buildRule(g *Grammar) parseRule {
 
 		return func(p *Parser, s *parserState) bool {
 			c := 0
+			s1 := s.clone()
 			for {
-				s1 := s.clone()
 				for _, r := range rules {
 					if !r(p, s1) {
 						return c >= min_n
 					}
 				}
-				s.merge(s1)
 				c += 1
+				if c >= min_n {
+					s.merge(s1)
+				}
+
 				if max_n != 0 && c >= max_n {
 					break
 				}
@@ -175,11 +259,13 @@ func (n *grammarNode) buildRule(g *Grammar) parseRule {
 			rules[i] = r.buildRule(g)
 		}
 		return func(p *Parser, s *parserState) bool {
+			s1 := s.clone()
 			for _, r := range rules {
-				if !r(p, s) {
+				if !r(p, s1) {
 					return false
 				}
 			}
+			s.merge(s1)
 			return true
 		}
 	default:
@@ -240,9 +326,9 @@ func (e *grammarError) Error() string {
 }
 
 type Grammar struct {
-	Start      string
-	Whitespace []string
-	Newline    []string
+	Start       string
+	Whitespaces []string
+	Newlines    []string
 
 	rules   []*grammarNode
 	names   []string
@@ -423,6 +509,37 @@ func (g *Grammar) Print(args ...any) {
 		return
 	}
 	a := &grammarNode{kind: printNode, message: args, pos: p}
+	g.nb.append(a)
+}
+func (g *Grammar) Trace(stub func()) {
+	p := g.markPosition()
+	if g.shouldExit(p) {
+		return
+	}
+	r := g.buildStub(inTrace, stub)
+	if g.err != nil {
+		return
+	}
+
+	a := &grammarNode{kind: traceNode, args: r.args, pos: p}
+	g.nb.append(a)
+}
+
+func (g *Grammar) Whitespace() {
+	p := g.markPosition()
+	if g.shouldExit(p) {
+		return
+	}
+	a := &grammarNode{kind: whitespaceNode, pos: p}
+	g.nb.append(a)
+}
+
+func (g *Grammar) Newline() {
+	p := g.markPosition()
+	if g.shouldExit(p) {
+		return
+	}
+	a := &grammarNode{kind: newlineNode, pos: p}
 	g.nb.append(a)
 }
 
