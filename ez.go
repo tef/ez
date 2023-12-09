@@ -36,10 +36,10 @@ const (
 )
 
 type filePosition struct {
-	file string
-	line int
-	rule *int
-	action  string
+	file   string
+	line   int
+	rule   *int
+	action string
 }
 
 type grammarError struct {
@@ -136,15 +136,17 @@ func (a *parseAction) buildRule(g *Grammar) parseRule {
 		p := g.posInfo[a.pos]
 		r := g.names[*p.rule]
 		prefix := fmt.Sprintf("%v:%v", p.file, p.line)
+		fn := g.LogFunc
 		return func(p *Parser, s *parserState) bool {
 			msg := fmt.Sprint(a.message...)
-			log.Printf("%v: g.Print(%q) called (inside %q at pos %v)\n", prefix, msg, r, s.offset)
+			fn("%v: g.Print(%q) called (inside %q at pos %v)\n", prefix, msg, r, s.offset)
 			return true
 		}
 	case traceAction:
 		p := g.posInfo[a.pos]
 		r := g.names[*p.rule]
 		prefix := fmt.Sprintf("%v:%v", p.file, p.line)
+		fn := g.LogFunc
 
 		rules := make([]parseRule, len(a.args))
 		for i, r := range a.args {
@@ -152,7 +154,7 @@ func (a *parseAction) buildRule(g *Grammar) parseRule {
 		}
 
 		return func(p *Parser, s *parserState) bool {
-			log.Printf("%v: g.Trace() called (inside %q at pos %v)\n", prefix, r, s.offset)
+			fn("%v: g.Trace() called (inside %q at pos %v)\n", prefix, r, s.offset)
 			result := true
 
 			s1 := s.clone()
@@ -369,6 +371,7 @@ type Grammar struct {
 	Start       string
 	Whitespaces []string
 	Newlines    []string
+	LogFunc     func(string, ...any)
 
 	rules   []*parseAction
 	names   []string
@@ -795,7 +798,7 @@ type Parser struct {
 	Err     error
 }
 
-func (p *Parser) testParser(accept []string, reject []string) bool {
+func (p *Parser) testGrammar(accept []string, reject []string) bool {
 	start := p.rules[p.start]
 	return p.testParseRule(start, accept, reject)
 }
@@ -833,6 +836,7 @@ func (p *Parser) testParseRule(rule parseRule, accept []string, reject []string)
 
 func BuildGrammar(stub func(*Grammar)) (*Grammar, error) {
 	g := &Grammar{}
+	g.LogFunc = Printf
 	g.pos = g.markPosition(grammarAction)
 	err := g.buildGrammar(stub)
 	if err != nil {
@@ -843,6 +847,7 @@ func BuildGrammar(stub func(*Grammar)) (*Grammar, error) {
 
 func BuildParser(stub func(*Grammar)) (*Parser, error) {
 	g := &Grammar{}
+	g.LogFunc = Printf
 	g.pos = g.markPosition(grammarAction)
 	err := g.buildGrammar(stub)
 	if err != nil {
@@ -850,4 +855,8 @@ func BuildParser(stub func(*Grammar)) (*Parser, error) {
 	}
 
 	return g.Parser()
+}
+
+func Printf(format string, a ...any) {
+	fmt.Printf(format, a...)
 }
