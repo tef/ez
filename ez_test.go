@@ -123,11 +123,22 @@ func TestParser(t *testing.T) {
 		g.Start = "start"
 		g.Define("start", func() {
 			g.Call("test_literal")
+			g.Call("test_optional")
 			// Call optional
 		})
 
 		g.Define("test_literal", func() {
 			g.Literal("example")
+		})
+		g.Define("test_optional", func() {
+			g.Optional(func() {
+				g.Literal("1")
+			})
+			g.Literal("2")
+			g.Optional(func() {
+				g.Literal("3")
+			})
+			g.Literal("4")
 		})
 
 		// test optional
@@ -141,7 +152,14 @@ func TestParser(t *testing.T) {
 			[]string{"", "bad", "longer example", "example bad"},
 		)
 		if !ok {
-			t.Error("test case failed")
+			t.Error("literal test case failed")
+		}
+		ok = parser.testRule("test_optional",
+			[]string{"24", "124", "234", "1234"},
+			[]string{"", "1", "34", "23", "123"},
+		)
+		if !ok {
+			t.Error("optional test case failed")
 		}
 	}
 
@@ -151,22 +169,11 @@ func TestParser(t *testing.T) {
 		g.Newlines = []string{"\r\n", "\r", "\n"}
 
 		g.Define("expr", func() {
-		//	g.Print("test")
-			g.Sequence(func() {
-				g.Choice(func() {
-					g.Call("truerule")
-				}, func() {
-					g.Call("falserule")
-				}, func() {
-					g.Optional(func() {
-						g.Literal("1")
-					})
-					g.Literal("2")
-					g.Optional(func() {
-						g.Literal("3")
-					})
-					g.Literal("4")
-				})
+			g.Choice(func() {
+				//	g.Print("test")
+				g.Call("truerule")
+			}, func() {
+				g.Call("falserule")
 			})
 		})
 
@@ -182,29 +189,12 @@ func TestParser(t *testing.T) {
 	if err != nil {
 		t.Errorf("error defining grammar:\n%v", err)
 	} else {
-
-		if !parser.testParse("true") {
-			t.Error("didn't parse true")
-		}
-
-		if !parser.testParse("false") {
-			t.Error("didn't parse false")
-		}
-
-		if parser.testParse("blue") {
-			t.Error("shouldn't parse blue")
-		}
-		if !parser.testParse("24") {
-			t.Error("didn't parse 24")
-		}
-		if !parser.testParse("234") {
-			t.Error("didn't parse 234")
-		}
-		if !parser.testParse("124") {
-			t.Error("didn't parse 124")
-		}
-		if !parser.testParse("1234") {
-			t.Error("didn't parse 1234")
+		ok = parser.testRule("test_optional",
+			[]string{"true", "false"},
+			[]string{"", "true1", "0false", "null"},
+		)
+		if !ok {
+			t.Error("rules test case failed")
 		}
 	}
 }
