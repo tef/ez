@@ -61,7 +61,7 @@ func (e *grammarError) Error() string {
 	}
 }
 
-type parseRule func(*Parser, *parserState) bool
+type parseFunc func(*Parser, *parserState) bool
 
 type parserState struct {
 	buf    string
@@ -129,7 +129,7 @@ type parseAction struct {
 	message []any
 }
 
-func (a *parseAction) buildRule(g *Grammar) parseRule {
+func (a *parseAction) buildFunc(g *Grammar) parseFunc {
 	switch a.kind {
 	case printAction:
 		p := g.posInfo[a.pos]
@@ -147,9 +147,9 @@ func (a *parseAction) buildRule(g *Grammar) parseRule {
 		prefix := fmt.Sprintf("%v:%v", p.file, p.line)
 		fn := g.LogFunc
 
-		rules := make([]parseRule, len(a.args))
+		rules := make([]parseFunc, len(a.args))
 		for i, r := range a.args {
-			rules[i] = r.buildRule(g)
+			rules[i] = r.buildFunc(g)
 		}
 
 		return func(p *Parser, s *parserState) bool {
@@ -233,9 +233,9 @@ func (a *parseAction) buildRule(g *Grammar) parseRule {
 			return r(p, s)
 		}
 	case optionalAction:
-		rules := make([]parseRule, len(a.args))
+		rules := make([]parseFunc, len(a.args))
 		for i, r := range a.args {
-			rules[i] = r.buildRule(g)
+			rules[i] = r.buildFunc(g)
 		}
 		return func(p *Parser, s *parserState) bool {
 			s1 := s.clone()
@@ -248,9 +248,9 @@ func (a *parseAction) buildRule(g *Grammar) parseRule {
 			return true
 		}
 	case lookaheadAction:
-		rules := make([]parseRule, len(a.args))
+		rules := make([]parseFunc, len(a.args))
 		for i, r := range a.args {
-			rules[i] = r.buildRule(g)
+			rules[i] = r.buildFunc(g)
 		}
 		return func(p *Parser, s *parserState) bool {
 			s1 := s.clone()
@@ -262,9 +262,9 @@ func (a *parseAction) buildRule(g *Grammar) parseRule {
 			return true
 		}
 	case rejectAction:
-		rules := make([]parseRule, len(a.args))
+		rules := make([]parseFunc, len(a.args))
 		for i, r := range a.args {
-			rules[i] = r.buildRule(g)
+			rules[i] = r.buildFunc(g)
 		}
 		return func(p *Parser, s *parserState) bool {
 			s1 := s.clone()
@@ -277,9 +277,9 @@ func (a *parseAction) buildRule(g *Grammar) parseRule {
 		}
 
 	case repeatAction:
-		rules := make([]parseRule, len(a.args))
+		rules := make([]parseFunc, len(a.args))
 		for i, r := range a.args {
-			rules[i] = r.buildRule(g)
+			rules[i] = r.buildFunc(g)
 		}
 		min_n := a.arg2
 		max_n := a.arg3
@@ -306,9 +306,9 @@ func (a *parseAction) buildRule(g *Grammar) parseRule {
 		}
 
 	case choiceAction:
-		rules := make([]parseRule, len(a.args))
+		rules := make([]parseFunc, len(a.args))
 		for i, r := range a.args {
-			rules[i] = r.buildRule(g)
+			rules[i] = r.buildFunc(g)
 		}
 		return func(p *Parser, s *parserState) bool {
 			for _, r := range rules {
@@ -321,9 +321,9 @@ func (a *parseAction) buildRule(g *Grammar) parseRule {
 			return false
 		}
 	case sequenceAction:
-		rules := make([]parseRule, len(a.args))
+		rules := make([]parseFunc, len(a.args))
 		for i, r := range a.args {
-			rules[i] = r.buildRule(g)
+			rules[i] = r.buildFunc(g)
 		}
 		return func(p *Parser, s *parserState) bool {
 			s1 := s.clone()
@@ -772,10 +772,10 @@ func (g *Grammar) Parser() (*Parser, error) {
 		return nil, g.err
 	}
 
-	rules := make([]parseRule, len(g.rules))
+	rules := make([]parseFunc, len(g.rules))
 
 	for k, v := range g.rules {
-		rules[k] = v.buildRule(g)
+		rules[k] = v.buildFunc(g)
 	}
 
 	start := g.nameIdx[g.Start]
@@ -790,7 +790,7 @@ func (g *Grammar) Parser() (*Parser, error) {
 }
 
 type Parser struct {
-	rules   []parseRule
+	rules   []parseFunc
 	names   []string
 	nameIdx map[string]int
 	start   int
@@ -807,7 +807,7 @@ func (p *Parser) testRule(name string, accept []string, reject []string) bool {
 	return p.testParseRule(start, accept, reject)
 }
 
-func (p *Parser) testParseRule(rule parseRule, accept []string, reject []string) bool {
+func (p *Parser) testParseRule(rule parseFunc, accept []string, reject []string) bool {
 	for _, s := range accept {
 		parserState := &parserState{
 			buf:    s,
