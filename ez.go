@@ -3,6 +3,7 @@ package ez
 import (
 	"errors"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -43,6 +44,7 @@ const (
 	inGrammar  = "inside-grammar"
 	inDef      = "inside-definition"
 	inChoice   = "inside-choice"
+	inSequence = "inside-sequence"
 	inOptional = "inside-optional"
 	inRepeat   = "inside-repeat"
 	inTrace    = "inside-trace"
@@ -114,7 +116,7 @@ func (n *grammarNode) buildRule(g *Grammar) parseRule {
 		prefix := fmt.Sprintf("%v:%v", p.file, p.line)
 		return func(p *Parser, s *parserState) bool {
 			msg := fmt.Sprint(n.message...)
-			fmt.Printf("%v: g.Print(%q) called (inside %q at pos %v)\n", prefix, msg, r, s.offset)
+			log.Printf("%v: g.Print(%q) called (inside %q at pos %v)\n", prefix, msg, r, s.offset)
 			return true
 		}
 	case traceNode:
@@ -128,7 +130,7 @@ func (n *grammarNode) buildRule(g *Grammar) parseRule {
 		}
 
 		return func(p *Parser, s *parserState) bool {
-			fmt.Printf("%v: g.Trace() called (inside %q at pos %v)\n", prefix, r, s.offset)
+			log.Printf("%v: g.Trace() called (inside %q at pos %v)\n", prefix, r, s.offset)
 			result := true
 
 			s1 := s.clone()
@@ -140,9 +142,9 @@ func (n *grammarNode) buildRule(g *Grammar) parseRule {
 			}
 			if result {
 				s.merge(s1)
-				fmt.Printf("%v: g.Trace() exiting (inside %q at pos %v)\n", prefix, r, s.offset)
+				log.Printf("%v: g.Trace() exiting (inside %q at pos %v)\n", prefix, r, s.offset)
 			} else {
-				fmt.Printf("%v: g.Trace() failing (inside %q at pos %v)\n", prefix, r, s.offset)
+				log.Printf("%v: g.Trace() failing (inside %q at pos %v)\n", prefix, r, s.offset)
 			}
 			return result
 		}
@@ -573,6 +575,21 @@ func (g *Grammar) Literal(s ...string) {
 		a := &grammarNode{kind: choiceNode, args: args, pos: p}
 		g.nb.append(a)
 	}
+}
+func (g *Grammar) Sequence(stub func()) {
+	p := g.markPosition()
+	if g.shouldExit(p) {
+		return
+	}
+
+	r := g.buildStub(inSequence, stub)
+
+	if g.err != nil {
+		return
+	}
+
+	a := r.buildNode(p)
+	g.nb.append(a)
 }
 
 func (g *Grammar) Choice(options ...func()) {

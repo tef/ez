@@ -17,7 +17,7 @@ func TestErrors(t *testing.T) {
 	if err == nil {
 		t.Error("empty grammar should raise error")
 	} else {
-		t.Logf("test grammar raised error: %v", err)
+		t.Logf("test grammar raised error:\n %v", err)
 	}
 
 	// start rule must exist
@@ -27,7 +27,7 @@ func TestErrors(t *testing.T) {
 	if err == nil {
 		t.Error("missing start should raise error")
 	} else {
-		t.Logf("test grammar raised error: %v", err)
+		t.Logf("test grammar raised error:\n %v", err)
 	}
 
 	// all called rules must be defined
@@ -41,7 +41,7 @@ func TestErrors(t *testing.T) {
 	if err == nil {
 		t.Error("missing rule should raise error")
 	} else {
-		t.Logf("test grammar raised error: %v", err)
+		t.Logf("test grammar raised error:\n %v", err)
 	}
 
 	// all defined rules must be called
@@ -57,7 +57,7 @@ func TestErrors(t *testing.T) {
 	if err == nil {
 		t.Error("unused rule should raise error")
 	} else {
-		t.Logf("test grammar raised error: %v", err)
+		t.Logf("test grammar raised error:\n %v", err)
 	}
 
 	// nested defines should fail
@@ -73,7 +73,7 @@ func TestErrors(t *testing.T) {
 	if err == nil {
 		t.Error("nested define should raise error")
 	} else {
-		t.Logf("test grammar raised error: %v", err)
+		t.Logf("test grammar raised error:\n %v", err)
 	}
 	// operators outside defines should fail
 	_, err = BuildGrammar(func(g *Grammar) {
@@ -86,7 +86,7 @@ func TestErrors(t *testing.T) {
 	if err == nil {
 		t.Error("builder outside define should raise error")
 	} else {
-		t.Logf("test grammar raised error: %v", err)
+		t.Logf("test grammar raised error:\n %v", err)
 	}
 
 	// calling builders outside should fail
@@ -100,7 +100,7 @@ func TestErrors(t *testing.T) {
 	if g.err == nil {
 		t.Error("define should raise error")
 	} else {
-		t.Logf("test grammar raised error: %v", g.err)
+		t.Logf("test grammar raised error:\n %v", g.err)
 	}
 	// calling builders outside should fail
 	g = &Grammar{}
@@ -109,7 +109,7 @@ func TestErrors(t *testing.T) {
 	if g.err == nil {
 		t.Error("define should raise error")
 	} else {
-		t.Logf("test grammar raised error: %v", g.err)
+		t.Logf("test grammar raised error:\n %v", g.err)
 	}
 
 }
@@ -151,20 +151,22 @@ func TestParser(t *testing.T) {
 		g.Newlines = []string{"\r\n", "\r", "\n"}
 
 		g.Define("expr", func() {
-			//g.Print("test")
-			g.Choice(func() {
-				g.Call("truerule")
-			}, func() {
-				g.Call("falserule")
-			}, func() {
-				g.Optional(func() {
-					g.Literal("1")
+		//	g.Print("test")
+			g.Sequence(func() {
+				g.Choice(func() {
+					g.Call("truerule")
+				}, func() {
+					g.Call("falserule")
+				}, func() {
+					g.Optional(func() {
+						g.Literal("1")
+					})
+					g.Literal("2")
+					g.Optional(func() {
+						g.Literal("3")
+					})
+					g.Literal("4")
 				})
-				g.Literal("2")
-				g.Optional(func() {
-					g.Literal("3")
-				})
-				g.Literal("4")
 			})
 		})
 
