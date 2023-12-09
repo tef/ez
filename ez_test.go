@@ -124,6 +124,7 @@ func TestParser(t *testing.T) {
 		g.Define("start", func() {
 			g.Call("test_literal")
 			g.Call("test_optional")
+			g.Call("test_range")
 			// Call optional
 		})
 
@@ -139,6 +140,9 @@ func TestParser(t *testing.T) {
 				g.Literal("3")
 			})
 			g.Literal("4")
+		})
+		g.Define("test_range", func() {
+			g.Range("0-9")
 		})
 
 		// test optional
@@ -160,6 +164,13 @@ func TestParser(t *testing.T) {
 		)
 		if !ok {
 			t.Error("optional test case failed")
+		}
+		ok = parser.testRule("test_range",
+			[]string{"0", "1", "2", "3", "4", "5", "6", "7", "8", "9"},
+			[]string{"", "00", "a0", "0a", "a0a"},
+		)
+		if !ok {
+			t.Error("range test case failed")
 		}
 	}
 

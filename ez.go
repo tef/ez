@@ -35,6 +35,32 @@ const (
 	dedentKind      = "Dedent"
 )
 
+type filePosition struct {
+	file string
+	line int
+	rule *int
+}
+
+type grammarError struct {
+	g       *Grammar
+	pos     int
+	message string
+	fatal   bool
+}
+
+func (e *grammarError) Error() string {
+	p := e.g.posInfo[e.pos]
+	if p.rule != nil {
+		name := e.g.names[*p.rule]
+		rulePos := e.g.posInfo[e.g.rulePos[*p.rule]]
+		return fmt.Sprintf("%v:%v: %v (inside %q at %v:%v)", p.file, p.line, e.message, name, rulePos.file, rulePos.line)
+
+	} else {
+		return fmt.Sprintf("%v:%v: %v", p.file, p.line, e.message)
+
+	}
+}
+
 type parseRule func(*Parser, *parserState) bool
 
 type parserState struct {
@@ -65,6 +91,10 @@ func (s *parserState) merge(new *parserState) {
 
 func (s *parserState) atEnd() bool {
 	return s.offset >= s.length
+}
+
+func (s *parserState) peek() byte {
+	return s.buf[s.offset]
 }
 
 func (s *parserState) advance(v string) bool {
@@ -178,6 +208,20 @@ func (n *grammarNode) buildRule(g *Grammar) parseRule {
 	case literalKind:
 		return func(p *Parser, s *parserState) bool {
 			return s.advance(n.arg1)
+		}
+	case rangeKind:
+		return func(p *Parser, s *parserState) bool {
+			if s.atEnd() {
+				return false
+			}
+			r := s.peek()
+			minR := n.arg1[0]
+			maxR := n.arg1[2]
+			if r >= minR && r <= maxR {
+				s.offset += 1
+				return true
+			}
+			return false
 		}
 	case callKind:
 		name := n.arg1
@@ -320,32 +364,6 @@ func (b *nodeBuilder) inRule() bool {
 	return b != nil && b.kind != grammarKind
 }
 
-type grammarError struct {
-	g       *Grammar
-	pos     int
-	message string
-	fatal   bool
-}
-
-type position struct {
-	file string
-	line int
-	rule *int
-}
-
-func (e *grammarError) Error() string {
-	p := e.g.posInfo[e.pos]
-	if p.rule != nil {
-		name := e.g.names[*p.rule]
-		rulePos := e.g.posInfo[e.g.rulePos[*p.rule]]
-		return fmt.Sprintf("%v:%v: %v (inside %q at %v:%v)", p.file, p.line, e.message, name, rulePos.file, rulePos.line)
-
-	} else {
-		return fmt.Sprintf("%v:%v: %v", p.file, p.line, e.message)
-
-	}
-}
-
 type Grammar struct {
 	Start       string
 	Whitespaces []string
@@ -358,14 +376,12 @@ type Grammar struct {
 	// list of pos for each name
 	callPos map[string][]int
 
-	// list of pos for each numbered rule
-	rulePos []int
-	// list of positions
-	posInfo []position
+	rulePos []int // posInfo[rulePos[ruleNum]]
+	posInfo []filePosition
 
 	nb *nodeBuilder
 
-	pos    int // grammar position
+	pos    int // posInfo[pos] for grammar define
 	errors []error
 	err    error
 }
@@ -438,7 +454,7 @@ func (g *Grammar) markPosition() int {
 	if g.nb != nil {
 		rule = g.nb.rule
 	}
-	pos := position{file: file, line: no, rule: rule}
+	pos := filePosition{file: file, line: no, rule: rule}
 	p := len(g.posInfo)
 
 	g.posInfo = append(g.posInfo, pos)
@@ -581,6 +597,7 @@ func (g *Grammar) Literal(s ...string) {
 	}
 	if len(s) == 0 {
 		g.Error(p, "missing operand")
+		return
 	}
 
 	if len(s) == 1 {
@@ -590,6 +607,36 @@ func (g *Grammar) Literal(s ...string) {
 		args := make([]*grammarNode, len(s))
 		for i, v := range s {
 			args[i] = &grammarNode{kind: literalKind, arg1: v, pos: p}
+		}
+		a := &grammarNode{kind: choiceKind, args: args, pos: p}
+		g.nb.append(a)
+	}
+}
+func (g *Grammar) Range(s ...string) {
+	p := g.markPosition()
+	if g.shouldExit(p) {
+		return
+	}
+	if len(s) == 0 {
+		g.Error(p, "missing operand")
+		return
+	}
+
+	if len(s) == 1 {
+		if len(s[0]) != 3 || s[0][1] != byte('-') {
+			g.Error(p, "invalid range", s)
+			return
+		}
+		a := &grammarNode{kind: rangeKind, arg1: s[0], pos: p}
+		g.nb.append(a)
+	} else {
+		args := make([]*grammarNode, len(s))
+		for i, v := range s {
+			if len(v) != 3 || v[1] == byte('-') {
+				g.Error(p, "invalid range", s)
+				return
+			}
+			args[i] = &grammarNode{kind: rangeKind, arg1: v, pos: p}
 		}
 		a := &grammarNode{kind: choiceKind, args: args, pos: p}
 		g.nb.append(a)
