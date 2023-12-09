@@ -335,6 +335,21 @@ func (a *parseAction) buildFunc(g *Grammar) parseFunc {
 			s.merge(s1)
 			return true
 		}
+	case captureAction:
+		rules := make([]parseFunc, len(a.args))
+		for i, r := range a.args {
+			rules[i] = r.buildFunc(g)
+		}
+		return func(p *Parser, s *parserState) bool {
+			s1 := s.clone()
+			for _, r := range rules {
+				if !r(p, s1) {
+					return false
+				}
+			}
+			s.merge(s1)
+			return true
+		}
 	default:
 		return func(p *Parser, s *parserState) bool {
 			return true
@@ -356,6 +371,11 @@ func (b *nodeBuilder) buildSequence(pos int) *parseAction {
 		return b.args[0]
 	}
 	return &parseAction{kind: sequenceAction, args: b.args, pos: pos}
+}
+
+func (b *nodeBuilder) buildNode(pos int, kind string) *parseAction {
+	return &parseAction{kind: kind, args: b.args, pos: pos}
+
 }
 
 func (b *nodeBuilder) append(a *parseAction) {
@@ -658,6 +678,22 @@ func (g *Grammar) Sequence(stub func()) {
 	}
 
 	a := r.buildSequence(p)
+	g.nb.append(a)
+}
+
+func (g *Grammar) Capture(name string, stub func()) {
+	p := g.markPosition(sequenceAction)
+	if g.shouldExit(p) {
+		return
+	}
+
+	r := g.buildStub(sequenceAction, stub)
+
+	if g.err != nil {
+		return
+	}
+
+	a := &parseAction{kind: captureAction, arg1: name, args: r.args, pos: p}
 	g.nb.append(a)
 }
 
