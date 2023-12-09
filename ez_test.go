@@ -117,8 +117,9 @@ func TestLogger(t *testing.T) {
 	var parser *Parser
 	var err error
 	var ok bool
+	var logMessages int
 
-	logMessages := 0
+	logMessages = 0
 	parser, err = BuildParser(func(g *Grammar) {
 		g.Start = "expr"
 
@@ -146,6 +147,39 @@ func TestLogger(t *testing.T) {
 		}
 		if logMessages < 2 { // two tests above
 			t.Error("print test case failed to log")
+		}
+
+	}
+
+	logMessages = 0
+
+	parser, err = BuildParser(func(g *Grammar) {
+		g.Start = "expr"
+
+		g.LogFunc = func(f string, o ...any) {
+			t.Logf(f, o...)
+			logMessages += 1
+		}
+
+		g.Define("expr", func() {
+			g.Trace(func() {
+				g.Literal("TEST")
+			})
+		})
+	})
+
+	if err != nil {
+		t.Errorf("error defining grammar:\n%v", err)
+	} else {
+		ok = parser.testGrammar(
+			[]string{"TEST"},
+			[]string{""},
+		)
+		if !ok {
+			t.Error("trace test case failed to parse")
+		}
+		if logMessages < 2 { // two tests above * two trace messages (enter, exit)
+			t.Error("trace test case failed to log")
 		}
 
 	}

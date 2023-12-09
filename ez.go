@@ -3,7 +3,6 @@ package ez
 import (
 	"errors"
 	"fmt"
-	"log"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -166,9 +165,9 @@ func (a *parseAction) buildRule(g *Grammar) parseRule {
 			}
 			if result {
 				s.merge(s1)
-				log.Printf("%v: g.Trace() exiting (inside %q at pos %v)\n", prefix, r, s.offset)
+				fn("%v: g.Trace() exiting (inside %q at pos %v)\n", prefix, r, s.offset)
 			} else {
-				log.Printf("%v: g.Trace() failing (inside %q at pos %v)\n", prefix, r, s.offset)
+				fn("%v: g.Trace() failing (inside %q at pos %v)\n", prefix, r, s.offset)
 			}
 			return result
 		}
