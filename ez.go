@@ -34,6 +34,11 @@ const (
 	dedentAction      = "Dedent"
 )
 
+func Printf(format string, a ...any) {
+	// used for g.LogFunc = ez.Printf
+	fmt.Printf(format, a...)
+}
+
 type filePosition struct {
 	file   string
 	line   int
@@ -510,11 +515,64 @@ func (g *Grammar) Parser() (*Parser, error) {
 	return p, nil
 }
 
-func Printf(format string, a ...any) {
-	fmt.Printf(format, a...)
+type parseFunc func(*parserState) bool
+
+type parserState struct {
+	rules  []parseFunc
+	buf    string
+	length int
+	offset int
+
+	// column int
+	// indent_column int
+	// for when we match n whitespace against a tab
+	// leftover_tab int
+	// leftover_tab pos
+	// indents, dedents
+	// parent
+	// values map[string]any
+
 }
 
-type parseFunc func(*scannerState) bool
+func (s *parserState) clone() *parserState {
+	st := parserState{}
+	st = *s
+	return &st
+}
+
+func (s *parserState) merge(new *parserState) {
+	*s = *new
+}
+
+func (s *parserState) atEnd() bool {
+	return s.offset >= s.length
+}
+
+func (s *parserState) peek() byte {
+	return s.buf[s.offset]
+}
+
+func (s *parserState) advance(v string) bool {
+	length_v := len(v)
+	if length_v+s.offset > s.length {
+		return false
+	}
+	b := s.buf[s.offset : s.offset+length_v]
+	if b == v {
+		s.offset += length_v
+		return true
+	}
+	return false
+}
+
+func (s *parserState) advanceAny(o []string) bool {
+	for _, v := range o {
+		if s.advance(v) {
+			return true
+		}
+	}
+	return false
+}
 
 type parseAction struct {
 	kind     string
@@ -536,7 +594,7 @@ func (a *parseAction) buildFunc(g *Grammar) parseFunc {
 		r := g.names[*p.rule]
 		prefix := fmt.Sprintf("%v:%v", p.file, p.line)
 		fn := g.LogFunc
-		return func(s *scannerState) bool {
+		return func(s *parserState) bool {
 			msg := fmt.Sprint(a.message...)
 			fn("%v: g.Print(%q) called (inside %q at pos %v)\n", prefix, msg, r, s.offset)
 			return true
@@ -552,7 +610,7 @@ func (a *parseAction) buildFunc(g *Grammar) parseFunc {
 			rules[i] = r.buildFunc(g)
 		}
 
-		return func(s *scannerState) bool {
+		return func(s *parserState) bool {
 			fn("%v: g.Trace() called (inside %q at pos %v)\n", prefix, r, s.offset)
 			result := true
 
@@ -577,7 +635,7 @@ func (a *parseAction) buildFunc(g *Grammar) parseFunc {
 	// case dedentAction
 
 	case whitespaceAction:
-		return func(s *scannerState) bool {
+		return func(s *parserState) bool {
 			for {
 				if !s.advanceAny(g.Whitespaces) {
 					break
@@ -586,29 +644,29 @@ func (a *parseAction) buildFunc(g *Grammar) parseFunc {
 			return true
 		}
 	case newlineAction:
-		return func(s *scannerState) bool {
+		return func(s *parserState) bool {
 			return s.advanceAny(g.Newlines)
 		}
 
 	case startOfLineAction:
-		return func(s *scannerState) bool {
+		return func(s *parserState) bool {
 			return true // column = 0
 		}
 	case endOfLineAction:
-		return func(s *scannerState) bool {
+		return func(s *parserState) bool {
 			return s.advanceAny(g.Newlines)
 		}
 	case startOfFileAction:
-		return func(s *scannerState) bool {
+		return func(s *parserState) bool {
 			return s.offset == 0
 		}
 	case endOfFileAction:
-		return func(s *scannerState) bool {
+		return func(s *parserState) bool {
 			return s.offset == len(s.buf)
 		}
 
 	case literalAction:
-		return func(s *scannerState) bool {
+		return func(s *parserState) bool {
 			for _, v := range a.literals {
 				if s.advance(v) {
 					return true
@@ -617,7 +675,7 @@ func (a *parseAction) buildFunc(g *Grammar) parseFunc {
 			return false
 		}
 	case rangeAction:
-		return func(s *scannerState) bool {
+		return func(s *parserState) bool {
 			if s.atEnd() {
 				return false
 			}
@@ -635,7 +693,7 @@ func (a *parseAction) buildFunc(g *Grammar) parseFunc {
 	case callAction:
 		name := a.name
 		idx := g.nameIdx[name]
-		return func(s *scannerState) bool {
+		return func(s *parserState) bool {
 			r := s.rules[idx]
 			return r(s)
 		}
@@ -644,7 +702,7 @@ func (a *parseAction) buildFunc(g *Grammar) parseFunc {
 		for i, r := range a.args {
 			rules[i] = r.buildFunc(g)
 		}
-		return func(s *scannerState) bool {
+		return func(s *parserState) bool {
 			s1 := s.clone()
 			for _, r := range rules {
 				if !r(s1) {
@@ -659,7 +717,7 @@ func (a *parseAction) buildFunc(g *Grammar) parseFunc {
 		for i, r := range a.args {
 			rules[i] = r.buildFunc(g)
 		}
-		return func(s *scannerState) bool {
+		return func(s *parserState) bool {
 			s1 := s.clone()
 			for _, r := range rules {
 				if !r(s1) {
@@ -673,7 +731,7 @@ func (a *parseAction) buildFunc(g *Grammar) parseFunc {
 		for i, r := range a.args {
 			rules[i] = r.buildFunc(g)
 		}
-		return func(s *scannerState) bool {
+		return func(s *parserState) bool {
 			s1 := s.clone()
 			for _, r := range rules {
 				if !r(s1) {
@@ -691,7 +749,7 @@ func (a *parseAction) buildFunc(g *Grammar) parseFunc {
 		min_n := a.min
 		max_n := a.max
 
-		return func(s *scannerState) bool {
+		return func(s *parserState) bool {
 			c := 0
 			s1 := s.clone()
 			for {
@@ -717,7 +775,7 @@ func (a *parseAction) buildFunc(g *Grammar) parseFunc {
 		for i, r := range a.args {
 			rules[i] = r.buildFunc(g)
 		}
-		return func(s *scannerState) bool {
+		return func(s *parserState) bool {
 			for _, r := range rules {
 				s1 := s.clone()
 				if r(s1) {
@@ -732,7 +790,7 @@ func (a *parseAction) buildFunc(g *Grammar) parseFunc {
 		for i, r := range a.args {
 			rules[i] = r.buildFunc(g)
 		}
-		return func(s *scannerState) bool {
+		return func(s *parserState) bool {
 			s1 := s.clone()
 			for _, r := range rules {
 				if !r(s1) {
@@ -747,7 +805,7 @@ func (a *parseAction) buildFunc(g *Grammar) parseFunc {
 		for i, r := range a.args {
 			rules[i] = r.buildFunc(g)
 		}
-		return func(s *scannerState) bool {
+		return func(s *parserState) bool {
 			s1 := s.clone()
 			for _, r := range rules {
 				if !r(s1) {
@@ -758,67 +816,10 @@ func (a *parseAction) buildFunc(g *Grammar) parseFunc {
 			return true
 		}
 	default:
-		return func(s *scannerState) bool {
+		return func(s *parserState) bool {
 			return true
 		}
 	}
-}
-
-type scannerState struct {
-	rules  []parseFunc
-	buf    string
-	length int
-	offset int
-
-	// column int
-	// indent_column int
-	// for when we match n whitespace against a tab
-	// leftover_tab int
-	// leftover_tab pos
-	// indents, dedents
-	// parent
-	// values map[string]any
-
-}
-
-func (s *scannerState) clone() *scannerState {
-	st := scannerState{}
-	st = *s
-	return &st
-}
-
-func (s *scannerState) merge(new *scannerState) {
-	*s = *new
-}
-
-func (s *scannerState) atEnd() bool {
-	return s.offset >= s.length
-}
-
-func (s *scannerState) peek() byte {
-	return s.buf[s.offset]
-}
-
-func (s *scannerState) advance(v string) bool {
-	length_v := len(v)
-	if length_v+s.offset > s.length {
-		return false
-	}
-	b := s.buf[s.offset : s.offset+length_v]
-	if b == v {
-		s.offset += length_v
-		return true
-	}
-	return false
-}
-
-func (s *scannerState) advanceAny(o []string) bool {
-	for _, v := range o {
-		if s.advance(v) {
-			return true
-		}
-	}
-	return false
 }
 
 type Parser struct {
@@ -828,36 +829,46 @@ type Parser struct {
 	Err     error
 }
 
+func (p *Parser) testString(s string) bool {
+	parserState := &parserState{
+		rules:  p.rules,
+		buf:    s,
+		length: len(s),
+	}
+	start := p.rules[p.start]
+	return start(parserState) && parserState.atEnd()
+}
+
 func (p *Parser) testGrammar(accept []string, reject []string) bool {
 	start := p.rules[p.start]
-	return p.testParseRule(start, accept, reject)
+	return p.testParseFunc(start, accept, reject)
 }
 
 func (p *Parser) testRule(name string, accept []string, reject []string) bool {
 	start := p.rules[p.grammar.nameIdx[name]]
-	return p.testParseRule(start, accept, reject)
+	return p.testParseFunc(start, accept, reject)
 }
 
-func (p *Parser) testParseRule(rule parseFunc, accept []string, reject []string) bool {
+func (p *Parser) testParseFunc(rule parseFunc, accept []string, reject []string) bool {
 	for _, s := range accept {
-		scannerState := &scannerState{
+		parserState := &parserState{
 			rules:  p.rules,
 			buf:    s,
 			length: len(s),
 		}
-		complete := rule(scannerState) && scannerState.atEnd()
+		complete := rule(parserState) && parserState.atEnd()
 
 		if !complete {
 			return false
 		}
 	}
 	for _, s := range reject {
-		scannerState := &scannerState{
+		parserState := &parserState{
 			rules:  p.rules,
 			buf:    s,
 			length: len(s),
 		}
-		complete := rule(scannerState) && scannerState.atEnd()
+		complete := rule(parserState) && parserState.atEnd()
 
 		if complete {
 			return false
