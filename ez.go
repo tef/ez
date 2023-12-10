@@ -120,12 +120,15 @@ func (s *parserState) advanceAny(o []string) bool {
 }
 
 type parseAction struct {
-	pos     int
-	kind    string
-	args    []*parseAction
-	arg1    string
-	arg2    int
-	arg3    int
+	kind     string
+	pos      int
+	name     string         // call, capture
+	args     []*parseAction // choice, seq, cap
+	literals []string
+	ranges   []string
+
+	min     int
+	max     int
 	message []any
 }
 
@@ -209,7 +212,12 @@ func (a *parseAction) buildFunc(g *Grammar) parseFunc {
 
 	case literalAction:
 		return func(p *Parser, s *parserState) bool {
-			return s.advance(a.arg1)
+			for _, v := range a.literals {
+				if s.advance(v) {
+					return true
+				}
+			}
+			return false
 		}
 	case rangeAction:
 		return func(p *Parser, s *parserState) bool {
@@ -217,16 +225,18 @@ func (a *parseAction) buildFunc(g *Grammar) parseFunc {
 				return false
 			}
 			r := s.peek()
-			minR := a.arg1[0]
-			maxR := a.arg1[2]
-			if r >= minR && r <= maxR {
-				s.offset += 1
-				return true
+			for _, v := range a.ranges {
+				minR := v[0]
+				maxR := v[2]
+				if r >= minR && r <= maxR {
+					s.offset += 1
+					return true
+				}
 			}
 			return false
 		}
 	case callAction:
-		name := a.arg1
+		name := a.name
 		idx := g.nameIdx[name]
 		return func(p *Parser, s *parserState) bool {
 			r := p.rules[idx]
@@ -281,8 +291,8 @@ func (a *parseAction) buildFunc(g *Grammar) parseFunc {
 		for i, r := range a.args {
 			rules[i] = r.buildFunc(g)
 		}
-		min_n := a.arg2
-		max_n := a.arg3
+		min_n := a.min
+		max_n := a.max
 
 		return func(p *Parser, s *parserState) bool {
 			c := 0
@@ -609,7 +619,7 @@ func (g *Grammar) Call(name string) {
 		return
 	}
 	g.callPos[name] = append(g.callPos[name], p)
-	a := &parseAction{kind: callAction, arg1: name, pos: p}
+	a := &parseAction{kind: callAction, name: name, pos: p}
 	g.nb.append(a)
 }
 
@@ -623,17 +633,8 @@ func (g *Grammar) Literal(s ...string) {
 		return
 	}
 
-	if len(s) == 1 {
-		a := &parseAction{kind: literalAction, arg1: s[0], pos: p}
-		g.nb.append(a)
-	} else {
-		args := make([]*parseAction, len(s))
-		for i, v := range s {
-			args[i] = &parseAction{kind: literalAction, arg1: v, pos: p}
-		}
-		a := &parseAction{kind: choiceAction, args: args, pos: p}
-		g.nb.append(a)
-	}
+	a := &parseAction{kind: literalAction, literals: s, pos: p}
+	g.nb.append(a)
 }
 func (g *Grammar) Range(s ...string) {
 	p := g.markPosition(rangeAction)
@@ -645,25 +646,16 @@ func (g *Grammar) Range(s ...string) {
 		return
 	}
 
-	if len(s) == 1 {
-		if len(s[0]) != 3 || s[0][1] != byte('-') {
-			g.Error(p, "invalid range", s)
+	args := make([]string, len(s))
+	for i, v := range s {
+		if len(v) != 3 || v[1] != byte('-') {
+			g.Error(p, "invalid range", v)
 			return
 		}
-		a := &parseAction{kind: rangeAction, arg1: s[0], pos: p}
-		g.nb.append(a)
-	} else {
-		args := make([]*parseAction, len(s))
-		for i, v := range s {
-			if len(v) != 3 || v[1] == byte('-') {
-				g.Error(p, "invalid range", s)
-				return
-			}
-			args[i] = &parseAction{kind: rangeAction, arg1: v, pos: p}
-		}
-		a := &parseAction{kind: choiceAction, args: args, pos: p}
-		g.nb.append(a)
+		args[i] = v
 	}
+	a := &parseAction{kind: rangeAction, ranges: args, pos: p}
+	g.nb.append(a)
 }
 func (g *Grammar) Sequence(stub func()) {
 	p := g.markPosition(sequenceAction)
@@ -693,7 +685,7 @@ func (g *Grammar) Capture(name string, stub func()) {
 		return
 	}
 
-	a := &parseAction{kind: captureAction, arg1: name, args: r.args, pos: p}
+	a := &parseAction{kind: captureAction, name: name, args: r.args, pos: p}
 	g.nb.append(a)
 }
 
@@ -771,7 +763,7 @@ func (g *Grammar) Repeat(min_t int, max_t int, stub func()) {
 		return
 	}
 
-	a := &parseAction{kind: repeatAction, args: r.args, arg2: min_t, arg3: max_t, pos: p}
+	a := &parseAction{kind: repeatAction, args: r.args, min: min_t, max: max_t, pos: p}
 	g.nb.append(a)
 }
 
