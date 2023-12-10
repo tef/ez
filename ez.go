@@ -515,13 +515,24 @@ func (g *Grammar) Parser() (*Parser, error) {
 	return p, nil
 }
 
+type Node struct {
+	name     string
+	start    int
+	end      int
+	children []int
+}
+
 type parseFunc func(*parserState) bool
 
 type parserState struct {
-	rules  []parseFunc
-	buf    string
+	rules []parseFunc
+	buf   string
+
 	length int
 	offset int
+
+	nodes    []Node
+	numNodes int
 
 	// column int
 	// indent_column int
@@ -541,6 +552,27 @@ func (s *parserState) clone() *parserState {
 }
 
 func (s *parserState) merge(new *parserState) {
+	*s = *new
+}
+func (s *parserState) mergeCapture(name string, new *parserState) {
+	n := new.numNodes - s.numNodes
+
+	var children []int
+	if n > 0 {
+		children = make([]int, n)
+		for i := 0; i < n; i++ {
+			children[i] = s.numNodes + i
+		}
+	}
+
+	node := Node{
+		name:     name,
+		start:    s.offset,
+		end:      new.offset,
+		children: children,
+	}
+	new.nodes = append(new.nodes[:new.numNodes], node)
+	new.numNodes = new.numNodes + 1
 	*s = *new
 }
 
@@ -812,7 +844,7 @@ func (a *parseAction) buildFunc(g *Grammar) parseFunc {
 					return false
 				}
 			}
-			s.merge(s1)
+			s.mergeCapture(a.name, s1)
 			return true
 		}
 	default:
@@ -829,14 +861,15 @@ type Parser struct {
 	Err     error
 }
 
-func (p *Parser) testString(s string) bool {
+func (p *Parser) testString(s string) (bool, []Node) {
 	parserState := &parserState{
 		rules:  p.rules,
 		buf:    s,
 		length: len(s),
 	}
 	start := p.rules[p.start]
-	return start(parserState) && parserState.atEnd()
+	success := start(parserState) && parserState.atEnd()
+	return success, parserState.nodes[:parserState.numNodes]
 }
 
 func (p *Parser) testGrammar(accept []string, reject []string) bool {

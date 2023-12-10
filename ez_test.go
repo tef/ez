@@ -280,3 +280,73 @@ func TestParser(t *testing.T) {
 		}
 	}
 }
+
+func TestCapture(t *testing.T) {
+	var parser *Parser
+	var err error
+	var ok bool
+	var nodes []Node
+
+	parser, err = BuildParser(func(g *Grammar) {
+		g.Start = "start"
+		g.Define("start", func() {
+			g.Capture("main", func() {
+				g.Literal("A")
+				g.Choice(func() {
+					g.Capture("main", func() {
+						g.Literal("BCD")
+					})
+
+				}, func() {
+					g.Capture("main", func() {
+						g.Literal("B")
+					})
+					g.Capture("main", func() {
+						g.Literal("C")
+					})
+				})
+			})
+		})
+	})
+
+	if err != nil {
+		t.Errorf("error defining grammar:\n%v", err)
+	} else {
+		ok = parser.testGrammar(
+			[]string{"ABC", "ABCD"},
+			[]string{""},
+		)
+		if !ok {
+			t.Error("literal test case failed")
+		}
+
+		ok, nodes = parser.testString("ABC")
+
+		if !ok {
+			t.Error("literal test case failed")
+		} else {
+			t.Log("ABC parsed")
+			if len(nodes) != 3 {
+				t.Error("no nodes")
+			} else {
+				for i, n := range nodes {
+					t.Logf("node %v: %v", i, n)
+				}
+			}
+		}
+		ok, nodes = parser.testString("ABCD")
+
+		if !ok {
+			t.Error("literal test case failed")
+		} else {
+			t.Log("ABCD parsed")
+			if len(nodes) != 2 {
+				t.Error("no nodes")
+			} else {
+				for i, n := range nodes {
+					t.Logf("node %v: %v", i, n)
+				}
+			}
+		}
+	}
+}
