@@ -288,6 +288,7 @@ func TestCapture(t *testing.T) {
 	var parser *Parser
 	var err error
 	var ok bool
+	var idx int
 	var nodes []Node
 
 	parser, err = BuildParser(func(g *Grammar) {
@@ -323,32 +324,30 @@ func TestCapture(t *testing.T) {
 			t.Error("literal test case failed")
 		}
 
-		ok, nodes = parser.testString("ABC")
+		idx, nodes = parser.testString("ABC")
 
-		if !ok {
+		if idx == -1 {
 			t.Error("literal test case failed")
 		} else {
 			t.Log("ABC parsed")
+			for i, n := range nodes {
+				t.Logf("node %v: %v", i, n)
+			}
 			if len(nodes) != 3 {
-				t.Error("no nodes")
-			} else {
-				for i, n := range nodes {
-					t.Logf("node %v: %v", i, n)
-				}
+				t.Error("wrong nodes count")
 			}
 		}
-		ok, nodes = parser.testString("ABCD")
+		idx, nodes = parser.testString("ABCD")
 
-		if !ok {
+		if idx == -1 {
 			t.Error("literal test case failed")
 		} else {
 			t.Log("ABCD parsed")
+			for i, n := range nodes {
+				t.Logf("node %v: %v", i, n)
+			}
 			if len(nodes) != 2 {
-				t.Error("no nodes")
-			} else {
-				for i, n := range nodes {
-					t.Logf("node %v: %v", i, n)
-				}
+				t.Error("wrong node count")
 			}
 		}
 	}

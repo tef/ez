@@ -579,6 +579,23 @@ func (s *parserState) mergeCapture(name string, new *parserState) {
 	*s = *new
 }
 
+func (s *parserState) captureNode(name string) int {
+	if len(s.children) == 1 {
+		return s.children[0]
+	} else {
+		node := Node{
+			name:     name,
+			start:    0,
+			end:      s.offset,
+			children: s.children,
+		}
+		s.nodes = append(s.nodes[:s.numNodes], node)
+		s.children = []int{}
+		s.numNodes = s.numNodes + 1
+		return s.numNodes - 1
+	}
+}
+
 func (s *parserState) atEnd() bool {
 	return s.offset >= s.length
 }
@@ -884,15 +901,19 @@ type Parser struct {
 	Err     error
 }
 
-func (p *Parser) testString(s string) (bool, []Node) {
+func (p *Parser) testString(s string) (int, []Node) {
 	parserState := &parserState{
 		rules:  p.rules,
 		buf:    s,
 		length: len(s),
 	}
 	start := p.rules[p.start]
-	success := start(parserState) && parserState.atEnd()
-	return success, parserState.nodes[:parserState.numNodes]
+	if start(parserState) && parserState.atEnd() {
+		name := p.grammar.Start
+		n := parserState.captureNode(name)
+		return n, parserState.nodes
+	}
+	return -1, []Node{}
 }
 
 func (p *Parser) testGrammar(accept []string, reject []string) bool {
