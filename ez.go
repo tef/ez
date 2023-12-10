@@ -61,312 +61,6 @@ func (e *grammarError) Error() string {
 	}
 }
 
-type parseFunc func(*Parser, *parserState) bool
-
-type parserState struct {
-	buf    string
-	length int
-	offset int
-
-	// column int
-	// indent_column int
-	// for when we match n whitespace against a tab
-	// leftover_tab int
-	// leftover_tab pos
-	// indents, dedents
-	// parent
-	// values map[string]any
-
-}
-
-func (s *parserState) clone() *parserState {
-	st := parserState{}
-	st = *s
-	return &st
-}
-
-func (s *parserState) merge(new *parserState) {
-	*s = *new
-}
-
-func (s *parserState) atEnd() bool {
-	return s.offset >= s.length
-}
-
-func (s *parserState) peek() byte {
-	return s.buf[s.offset]
-}
-
-func (s *parserState) advance(v string) bool {
-	length_v := len(v)
-	if length_v+s.offset > s.length {
-		return false
-	}
-	b := s.buf[s.offset : s.offset+length_v]
-	if b == v {
-		s.offset += length_v
-		return true
-	}
-	return false
-}
-
-func (s *parserState) advanceAny(o []string) bool {
-	for _, v := range o {
-		if s.advance(v) {
-			return true
-		}
-	}
-	return false
-}
-
-type parseAction struct {
-	kind     string
-	pos      int
-	name     string         // call, capture
-	args     []*parseAction // choice, seq, cap
-	literals []string
-	ranges   []string
-
-	min     int
-	max     int
-	message []any
-}
-
-func (a *parseAction) buildFunc(g *Grammar) parseFunc {
-	switch a.kind {
-	case printAction:
-		p := g.posInfo[a.pos]
-		r := g.names[*p.rule]
-		prefix := fmt.Sprintf("%v:%v", p.file, p.line)
-		fn := g.LogFunc
-		return func(p *Parser, s *parserState) bool {
-			msg := fmt.Sprint(a.message...)
-			fn("%v: g.Print(%q) called (inside %q at pos %v)\n", prefix, msg, r, s.offset)
-			return true
-		}
-	case traceAction:
-		p := g.posInfo[a.pos]
-		r := g.names[*p.rule]
-		prefix := fmt.Sprintf("%v:%v", p.file, p.line)
-		fn := g.LogFunc
-
-		rules := make([]parseFunc, len(a.args))
-		for i, r := range a.args {
-			rules[i] = r.buildFunc(g)
-		}
-
-		return func(p *Parser, s *parserState) bool {
-			fn("%v: g.Trace() called (inside %q at pos %v)\n", prefix, r, s.offset)
-			result := true
-
-			s1 := s.clone()
-			for _, v := range rules {
-				if !v(p, s1) {
-					result = false
-					break
-				}
-			}
-			if result {
-				s.merge(s1)
-				fn("%v: g.Trace() exiting (inside %q at pos %v)\n", prefix, r, s.offset)
-			} else {
-				fn("%v: g.Trace() failing (inside %q at pos %v)\n", prefix, r, s.offset)
-			}
-			return result
-		}
-
-	// case partialTabAction
-	// case indentAction
-	// case dedentAction
-
-	case whitespaceAction:
-		return func(p *Parser, s *parserState) bool {
-			for {
-				if !s.advanceAny(g.Whitespaces) {
-					break
-				}
-			}
-			return true
-		}
-	case newlineAction:
-		return func(p *Parser, s *parserState) bool {
-			return s.advanceAny(g.Newlines)
-		}
-
-	case startOfLineAction:
-		return func(p *Parser, s *parserState) bool {
-			return true // column = 0
-		}
-	case endOfLineAction:
-		return func(p *Parser, s *parserState) bool {
-			return s.advanceAny(g.Newlines)
-		}
-	case startOfFileAction:
-		return func(p *Parser, s *parserState) bool {
-			return s.offset == 0
-		}
-	case endOfFileAction:
-		return func(p *Parser, s *parserState) bool {
-			return s.offset == len(s.buf)
-		}
-
-	case literalAction:
-		return func(p *Parser, s *parserState) bool {
-			for _, v := range a.literals {
-				if s.advance(v) {
-					return true
-				}
-			}
-			return false
-		}
-	case rangeAction:
-		return func(p *Parser, s *parserState) bool {
-			if s.atEnd() {
-				return false
-			}
-			r := s.peek()
-			for _, v := range a.ranges {
-				minR := v[0]
-				maxR := v[2]
-				if r >= minR && r <= maxR {
-					s.offset += 1
-					return true
-				}
-			}
-			return false
-		}
-	case callAction:
-		name := a.name
-		idx := g.nameIdx[name]
-		return func(p *Parser, s *parserState) bool {
-			r := p.rules[idx]
-			return r(p, s)
-		}
-	case optionalAction:
-		rules := make([]parseFunc, len(a.args))
-		for i, r := range a.args {
-			rules[i] = r.buildFunc(g)
-		}
-		return func(p *Parser, s *parserState) bool {
-			s1 := s.clone()
-			for _, r := range rules {
-				if !r(p, s1) {
-					return true
-				}
-			}
-			s.merge(s1)
-			return true
-		}
-	case lookaheadAction:
-		rules := make([]parseFunc, len(a.args))
-		for i, r := range a.args {
-			rules[i] = r.buildFunc(g)
-		}
-		return func(p *Parser, s *parserState) bool {
-			s1 := s.clone()
-			for _, r := range rules {
-				if !r(p, s1) {
-					return false
-				}
-			}
-			return true
-		}
-	case rejectAction:
-		rules := make([]parseFunc, len(a.args))
-		for i, r := range a.args {
-			rules[i] = r.buildFunc(g)
-		}
-		return func(p *Parser, s *parserState) bool {
-			s1 := s.clone()
-			for _, r := range rules {
-				if !r(p, s1) {
-					return true
-				}
-			}
-			return false
-		}
-
-	case repeatAction:
-		rules := make([]parseFunc, len(a.args))
-		for i, r := range a.args {
-			rules[i] = r.buildFunc(g)
-		}
-		min_n := a.min
-		max_n := a.max
-
-		return func(p *Parser, s *parserState) bool {
-			c := 0
-			s1 := s.clone()
-			for {
-				for _, r := range rules {
-					if !r(p, s1) {
-						return c >= min_n
-					}
-				}
-				c += 1
-				if c >= min_n {
-					s.merge(s1)
-				}
-
-				if max_n != 0 && c >= max_n {
-					break
-				}
-			}
-			return true
-		}
-
-	case choiceAction:
-		rules := make([]parseFunc, len(a.args))
-		for i, r := range a.args {
-			rules[i] = r.buildFunc(g)
-		}
-		return func(p *Parser, s *parserState) bool {
-			for _, r := range rules {
-				s1 := s.clone()
-				if r(p, s1) {
-					s.merge(s1)
-					return true
-				}
-			}
-			return false
-		}
-	case sequenceAction:
-		rules := make([]parseFunc, len(a.args))
-		for i, r := range a.args {
-			rules[i] = r.buildFunc(g)
-		}
-		return func(p *Parser, s *parserState) bool {
-			s1 := s.clone()
-			for _, r := range rules {
-				if !r(p, s1) {
-					return false
-				}
-			}
-			s.merge(s1)
-			return true
-		}
-	case captureAction:
-		rules := make([]parseFunc, len(a.args))
-		for i, r := range a.args {
-			rules[i] = r.buildFunc(g)
-		}
-		return func(p *Parser, s *parserState) bool {
-			s1 := s.clone()
-			for _, r := range rules {
-				if !r(p, s1) {
-					return false
-				}
-			}
-			s.merge(s1)
-			return true
-		}
-	default:
-		return func(p *Parser, s *parserState) bool {
-			return true
-		}
-	}
-}
-
 type nodeBuilder struct {
 	kind string
 	rule *int
@@ -811,17 +505,326 @@ func (g *Grammar) Parser() (*Parser, error) {
 	p := &Parser{
 		start:   start,
 		rules:   rules,
-		names:   g.names,
-		nameIdx: g.nameIdx,
+		grammar: g,
 	}
 	return p, nil
 }
 
+func Printf(format string, a ...any) {
+	fmt.Printf(format, a...)
+}
+
+type parseFunc func(*scannerState) bool
+
+type parseAction struct {
+	kind     string
+	pos      int
+	name     string         // call, capture
+	args     []*parseAction // choice, seq, cap
+	literals []string
+	ranges   []string
+
+	min     int
+	max     int
+	message []any
+}
+
+func (a *parseAction) buildFunc(g *Grammar) parseFunc {
+	switch a.kind {
+	case printAction:
+		p := g.posInfo[a.pos]
+		r := g.names[*p.rule]
+		prefix := fmt.Sprintf("%v:%v", p.file, p.line)
+		fn := g.LogFunc
+		return func(s *scannerState) bool {
+			msg := fmt.Sprint(a.message...)
+			fn("%v: g.Print(%q) called (inside %q at pos %v)\n", prefix, msg, r, s.offset)
+			return true
+		}
+	case traceAction:
+		p := g.posInfo[a.pos]
+		r := g.names[*p.rule]
+		prefix := fmt.Sprintf("%v:%v", p.file, p.line)
+		fn := g.LogFunc
+
+		rules := make([]parseFunc, len(a.args))
+		for i, r := range a.args {
+			rules[i] = r.buildFunc(g)
+		}
+
+		return func(s *scannerState) bool {
+			fn("%v: g.Trace() called (inside %q at pos %v)\n", prefix, r, s.offset)
+			result := true
+
+			s1 := s.clone()
+			for _, v := range rules {
+				if !v(s1) {
+					result = false
+					break
+				}
+			}
+			if result {
+				s.merge(s1)
+				fn("%v: g.Trace() exiting (inside %q at pos %v)\n", prefix, r, s.offset)
+			} else {
+				fn("%v: g.Trace() failing (inside %q at pos %v)\n", prefix, r, s.offset)
+			}
+			return result
+		}
+
+	// case partialTabAction
+	// case indentAction
+	// case dedentAction
+
+	case whitespaceAction:
+		return func(s *scannerState) bool {
+			for {
+				if !s.advanceAny(g.Whitespaces) {
+					break
+				}
+			}
+			return true
+		}
+	case newlineAction:
+		return func(s *scannerState) bool {
+			return s.advanceAny(g.Newlines)
+		}
+
+	case startOfLineAction:
+		return func(s *scannerState) bool {
+			return true // column = 0
+		}
+	case endOfLineAction:
+		return func(s *scannerState) bool {
+			return s.advanceAny(g.Newlines)
+		}
+	case startOfFileAction:
+		return func(s *scannerState) bool {
+			return s.offset == 0
+		}
+	case endOfFileAction:
+		return func(s *scannerState) bool {
+			return s.offset == len(s.buf)
+		}
+
+	case literalAction:
+		return func(s *scannerState) bool {
+			for _, v := range a.literals {
+				if s.advance(v) {
+					return true
+				}
+			}
+			return false
+		}
+	case rangeAction:
+		return func(s *scannerState) bool {
+			if s.atEnd() {
+				return false
+			}
+			r := s.peek()
+			for _, v := range a.ranges {
+				minR := v[0]
+				maxR := v[2]
+				if r >= minR && r <= maxR {
+					s.offset += 1
+					return true
+				}
+			}
+			return false
+		}
+	case callAction:
+		name := a.name
+		idx := g.nameIdx[name]
+		return func(s *scannerState) bool {
+			r := s.rules[idx]
+			return r(s)
+		}
+	case optionalAction:
+		rules := make([]parseFunc, len(a.args))
+		for i, r := range a.args {
+			rules[i] = r.buildFunc(g)
+		}
+		return func(s *scannerState) bool {
+			s1 := s.clone()
+			for _, r := range rules {
+				if !r(s1) {
+					return true
+				}
+			}
+			s.merge(s1)
+			return true
+		}
+	case lookaheadAction:
+		rules := make([]parseFunc, len(a.args))
+		for i, r := range a.args {
+			rules[i] = r.buildFunc(g)
+		}
+		return func(s *scannerState) bool {
+			s1 := s.clone()
+			for _, r := range rules {
+				if !r(s1) {
+					return false
+				}
+			}
+			return true
+		}
+	case rejectAction:
+		rules := make([]parseFunc, len(a.args))
+		for i, r := range a.args {
+			rules[i] = r.buildFunc(g)
+		}
+		return func(s *scannerState) bool {
+			s1 := s.clone()
+			for _, r := range rules {
+				if !r(s1) {
+					return true
+				}
+			}
+			return false
+		}
+
+	case repeatAction:
+		rules := make([]parseFunc, len(a.args))
+		for i, r := range a.args {
+			rules[i] = r.buildFunc(g)
+		}
+		min_n := a.min
+		max_n := a.max
+
+		return func(s *scannerState) bool {
+			c := 0
+			s1 := s.clone()
+			for {
+				for _, r := range rules {
+					if !r(s1) {
+						return c >= min_n
+					}
+				}
+				c += 1
+				if c >= min_n {
+					s.merge(s1)
+				}
+
+				if max_n != 0 && c >= max_n {
+					break
+				}
+			}
+			return true
+		}
+
+	case choiceAction:
+		rules := make([]parseFunc, len(a.args))
+		for i, r := range a.args {
+			rules[i] = r.buildFunc(g)
+		}
+		return func(s *scannerState) bool {
+			for _, r := range rules {
+				s1 := s.clone()
+				if r(s1) {
+					s.merge(s1)
+					return true
+				}
+			}
+			return false
+		}
+	case sequenceAction:
+		rules := make([]parseFunc, len(a.args))
+		for i, r := range a.args {
+			rules[i] = r.buildFunc(g)
+		}
+		return func(s *scannerState) bool {
+			s1 := s.clone()
+			for _, r := range rules {
+				if !r(s1) {
+					return false
+				}
+			}
+			s.merge(s1)
+			return true
+		}
+	case captureAction:
+		rules := make([]parseFunc, len(a.args))
+		for i, r := range a.args {
+			rules[i] = r.buildFunc(g)
+		}
+		return func(s *scannerState) bool {
+			s1 := s.clone()
+			for _, r := range rules {
+				if !r(s1) {
+					return false
+				}
+			}
+			s.merge(s1)
+			return true
+		}
+	default:
+		return func(s *scannerState) bool {
+			return true
+		}
+	}
+}
+
+type scannerState struct {
+	rules  []parseFunc
+	buf    string
+	length int
+	offset int
+
+	// column int
+	// indent_column int
+	// for when we match n whitespace against a tab
+	// leftover_tab int
+	// leftover_tab pos
+	// indents, dedents
+	// parent
+	// values map[string]any
+
+}
+
+func (s *scannerState) clone() *scannerState {
+	st := scannerState{}
+	st = *s
+	return &st
+}
+
+func (s *scannerState) merge(new *scannerState) {
+	*s = *new
+}
+
+func (s *scannerState) atEnd() bool {
+	return s.offset >= s.length
+}
+
+func (s *scannerState) peek() byte {
+	return s.buf[s.offset]
+}
+
+func (s *scannerState) advance(v string) bool {
+	length_v := len(v)
+	if length_v+s.offset > s.length {
+		return false
+	}
+	b := s.buf[s.offset : s.offset+length_v]
+	if b == v {
+		s.offset += length_v
+		return true
+	}
+	return false
+}
+
+func (s *scannerState) advanceAny(o []string) bool {
+	for _, v := range o {
+		if s.advance(v) {
+			return true
+		}
+	}
+	return false
+}
+
 type Parser struct {
 	rules   []parseFunc
-	names   []string
-	nameIdx map[string]int
 	start   int
+	grammar *Grammar
 	Err     error
 }
 
@@ -831,28 +834,30 @@ func (p *Parser) testGrammar(accept []string, reject []string) bool {
 }
 
 func (p *Parser) testRule(name string, accept []string, reject []string) bool {
-	start := p.rules[p.nameIdx[name]]
+	start := p.rules[p.grammar.nameIdx[name]]
 	return p.testParseRule(start, accept, reject)
 }
 
 func (p *Parser) testParseRule(rule parseFunc, accept []string, reject []string) bool {
 	for _, s := range accept {
-		parserState := &parserState{
+		scannerState := &scannerState{
+			rules:  p.rules,
 			buf:    s,
 			length: len(s),
 		}
-		complete := rule(p, parserState) && parserState.atEnd()
+		complete := rule(scannerState) && scannerState.atEnd()
 
 		if !complete {
 			return false
 		}
 	}
 	for _, s := range reject {
-		parserState := &parserState{
+		scannerState := &scannerState{
+			rules:  p.rules,
 			buf:    s,
 			length: len(s),
 		}
-		complete := rule(p, parserState) && parserState.atEnd()
+		complete := rule(scannerState) && scannerState.atEnd()
 
 		if complete {
 			return false
@@ -882,8 +887,4 @@ func BuildParser(stub func(*Grammar)) (*Parser, error) {
 	}
 
 	return g.Parser()
-}
-
-func Printf(format string, a ...any) {
-	fmt.Printf(format, a...)
 }
