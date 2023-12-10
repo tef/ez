@@ -534,6 +534,8 @@ type parserState struct {
 	nodes    []Node
 	numNodes int
 
+	trace bool
+
 	// column int
 	// indent_column int
 	// for when we match n whitespace against a tab
@@ -643,10 +645,11 @@ func (a *parseAction) buildFunc(g *Grammar) parseFunc {
 		}
 
 		return func(s *parserState) bool {
-			fn("%v: g.Trace() called (inside %q at pos %v)\n", prefix, r, s.offset)
+			fn("%v: Trace called (inside %q at pos %v)\n", prefix, r, s.offset)
 			result := true
 
 			s1 := s.clone()
+			s1.trace = true
 			for _, v := range rules {
 				if !v(s1) {
 					result = false
@@ -654,8 +657,9 @@ func (a *parseAction) buildFunc(g *Grammar) parseFunc {
 				}
 			}
 			if result {
+				s1.trace = false
+				fn("%v: Trace exiting (inside %q at pos %v)\n", prefix, r, s1.offset)
 				s.merge(s1)
-				fn("%v: g.Trace() exiting (inside %q at pos %v)\n", prefix, r, s.offset)
 			} else {
 				fn("%v: g.Trace() failing (inside %q at pos %v)\n", prefix, r, s.offset)
 			}
@@ -723,11 +727,27 @@ func (a *parseAction) buildFunc(g *Grammar) parseFunc {
 			return false
 		}
 	case callAction:
+		p := g.posInfo[a.pos]
+		prefix := fmt.Sprintf("%v:%v", p.file, p.line)
+		fn := g.LogFunc
 		name := a.name
 		idx := g.nameIdx[name]
 		return func(s *parserState) bool {
-			r := s.rules[idx]
-			return r(s)
+			if s.trace {
+				fn("%v: %v called (at pos %v)\n", prefix, name, s.offset)
+			}
+
+			rule := s.rules[idx]
+			out := rule(s)
+
+			if s.trace {
+				if out {
+					fn("%v: %v exiting (at pos %v)\n", prefix, name, s.offset)
+				} else {
+					fn("%v: %v failing (at pos %v)\n", prefix, name, s.offset)
+				}
+			}
+			return out
 		}
 	case optionalAction:
 		rules := make([]parseFunc, len(a.args))

@@ -163,8 +163,11 @@ func TestLogger(t *testing.T) {
 
 		g.Define("expr", func() {
 			g.Trace(func() {
-				g.Literal("TEST")
+				g.Call("test")
 			})
+		})
+		g.Define("test", func() {
+			g.Literal("TEST")
 		})
 	})
 
