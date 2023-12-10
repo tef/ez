@@ -296,16 +296,16 @@ func TestCapture(t *testing.T) {
 			g.Capture("main", func() {
 				g.Literal("A")
 				g.Choice(func() {
-					g.Capture("main", func() {
+					g.Capture("bcd", func() {
 						g.Literal("BCD")
 					})
 
 				}, func() {
-					g.Capture("main", func() {
+					g.Capture("b", func() {
 						g.Literal("B")
-					})
-					g.Capture("main", func() {
-						g.Literal("C")
+						g.Capture("c", func() {
+							g.Literal("C")
+						})
 					})
 				})
 			})

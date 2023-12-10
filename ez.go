@@ -533,6 +533,7 @@ type parserState struct {
 
 	nodes    []Node
 	numNodes int
+	children []int
 
 	trace bool
 
@@ -556,24 +557,24 @@ func (s *parserState) clone() *parserState {
 func (s *parserState) merge(new *parserState) {
 	*s = *new
 }
+func (s *parserState) trim(new *parserState) {
+	s.nodes = s.nodes[:s.numNodes]
+}
+func (s *parserState) startCapture() *parserState {
+	st := parserState{}
+	st = *s
+	st.children = []int{}
+	return &st
+}
 func (s *parserState) mergeCapture(name string, new *parserState) {
-	n := new.numNodes - s.numNodes
-
-	var children []int
-	if n > 0 {
-		children = make([]int, n)
-		for i := 0; i < n; i++ {
-			children[i] = s.numNodes + i
-		}
-	}
-
 	node := Node{
 		name:     name,
 		start:    s.offset,
 		end:      new.offset,
-		children: children,
+		children: new.children,
 	}
 	new.nodes = append(new.nodes[:new.numNodes], node)
+	new.children = append(s.children, new.numNodes)
 	new.numNodes = new.numNodes + 1
 	*s = *new
 }
@@ -711,6 +712,7 @@ func (a *parseAction) buildFunc(g *Grammar) parseFunc {
 			return false
 		}
 	case rangeAction:
+		inverted := false
 		return func(s *parserState) bool {
 			if s.atEnd() {
 				return false
@@ -721,10 +723,10 @@ func (a *parseAction) buildFunc(g *Grammar) parseFunc {
 				maxR := v[2]
 				if r >= minR && r <= maxR {
 					s.offset += 1
-					return true
+					return !inverted
 				}
 			}
-			return false
+			return inverted
 		}
 	case callAction:
 		p := g.posInfo[a.pos]
@@ -834,6 +836,7 @@ func (a *parseAction) buildFunc(g *Grammar) parseFunc {
 					s.merge(s1)
 					return true
 				}
+				s.trim(s1)
 			}
 			return false
 		}
@@ -858,7 +861,7 @@ func (a *parseAction) buildFunc(g *Grammar) parseFunc {
 			rules[i] = r.buildFunc(g)
 		}
 		return func(s *parserState) bool {
-			s1 := s.clone()
+			s1 := s.startCapture()
 			for _, r := range rules {
 				if !r(s1) {
 					return false
