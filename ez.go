@@ -522,6 +522,11 @@ type Node struct {
 	children []int
 }
 
+type NodeTree struct {
+	nodes []Node
+	root  int
+}
+
 type parseFunc func(*parserState) bool
 
 type parserState struct {
@@ -901,7 +906,7 @@ type Parser struct {
 	Err     error
 }
 
-func (p *Parser) testString(s string) (int, []Node) {
+func (p *Parser) testString(s string) *NodeTree {
 	parserState := &parserState{
 		rules:  p.rules,
 		buf:    s,
@@ -911,9 +916,9 @@ func (p *Parser) testString(s string) (int, []Node) {
 	if start(parserState) && parserState.atEnd() {
 		name := p.grammar.Start
 		n := parserState.captureNode(name)
-		return n, parserState.nodes
+		return &NodeTree{root: n, nodes: parserState.nodes}
 	}
-	return -1, []Node{}
+	return nil
 }
 
 func (p *Parser) testGrammar(accept []string, reject []string) bool {
