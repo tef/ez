@@ -36,10 +36,39 @@ const (
 	dedentAction      = "Dedent"
 )
 
+var ParseError = errors.New("failed to parse")
+
 func Printf(format string, a ...any) {
 	// used for g.LogFunc = ez.Printf
 	fmt.Printf(format, a...)
 }
+
+func BuildGrammar(stub func(*Grammar)) *Grammar {
+	g := &Grammar{}
+	g.LogFunc = Printf
+	g.pos = g.markPosition(grammarAction)
+	err := g.buildGrammar(stub)
+	if err != nil {
+		return &Grammar{err: err}
+	}
+	return g
+}
+
+func BuildParser(stub func(*Grammar)) *Parser {
+	g := &Grammar{}
+	g.LogFunc = Printf
+	g.pos = g.markPosition(grammarAction)
+	err := g.buildGrammar(stub)
+	if err != nil {
+		return &Parser{err: err}
+	}
+
+	return g.Parser()
+}
+
+//
+//  	Grammar Builder
+//
 
 type filePosition struct {
 	file   string
@@ -79,7 +108,6 @@ func (b *nodeBuilder) buildSequence(pos int) *parseAction {
 
 func (b *nodeBuilder) buildNode(pos int, kind string) *parseAction {
 	return &parseAction{kind: kind, args: b.args, pos: pos}
-
 }
 
 func (b *nodeBuilder) append(a *parseAction) {
@@ -89,6 +117,8 @@ func (b *nodeBuilder) append(a *parseAction) {
 func (b *nodeBuilder) inRule() bool {
 	return b != nil && b.kind != grammarAction
 }
+
+type BuilderFunc func(string, []any) (any, error)
 
 type Grammar struct {
 	Start       string
@@ -585,108 +615,11 @@ func (g *Grammar) Parser() *Parser {
 	return p
 }
 
+//
+//  	Parser
+//
+
 type parseFunc func(*parserState) bool
-
-type parserState struct {
-	rules []parseFunc
-	buf   string
-
-	length int
-	offset int
-
-	nodes    []Node
-	numNodes int
-	children []int
-
-	trace bool
-
-	// column int
-	// indent_column int
-	// for when we match n whitespace against a tab
-	// leftover_tab int
-	// leftover_tab pos
-	// indents, dedents
-	// parent
-	// values map[string]any
-
-}
-
-func (s *parserState) copyInto(into *parserState) {
-	*into = *s
-}
-
-func (s *parserState) merge(new *parserState) {
-	*s = *new
-}
-func (s *parserState) trim(new *parserState) {
-	s.nodes = s.nodes[:s.numNodes]
-}
-func (s *parserState) startCapture(st *parserState) {
-	*st = *s
-	st.children = []int{}
-}
-func (s *parserState) mergeCapture(name string, new *parserState) {
-	node := Node{
-		name:     name,
-		start:    s.offset,
-		end:      new.offset,
-		children: new.children,
-	}
-	new.nodes = append(new.nodes[:new.numNodes], node)
-	new.children = append(s.children, new.numNodes)
-	new.numNodes = new.numNodes + 1
-	*s = *new
-}
-
-func (s *parserState) captureNode(name string) int {
-	if len(s.children) == 1 {
-		return s.children[0]
-	} else {
-		node := Node{
-			name:     name,
-			start:    0,
-			end:      s.offset,
-			children: s.children,
-		}
-		s.nodes = append(s.nodes[:s.numNodes], node)
-		s.children = []int{}
-		s.numNodes = s.numNodes + 1
-		return s.numNodes - 1
-	}
-}
-
-func (s *parserState) atEnd() bool {
-	return s.offset >= s.length
-}
-
-func (s *parserState) peekByte() byte {
-	return s.buf[s.offset]
-}
-
-func (s *parserState) peekRune() (rune, int) {
-	return utf8.DecodeRuneInString(s.buf[s.offset:])
-}
-func (s *parserState) advance(v string) bool {
-	length_v := len(v)
-	if length_v+s.offset > s.length {
-		return false
-	}
-	b := s.buf[s.offset : s.offset+length_v]
-	if b == v {
-		s.offset += length_v
-		return true
-	}
-	return false
-}
-
-func (s *parserState) advanceAny(o []string) bool {
-	for _, v := range o {
-		if s.advance(v) {
-			return true
-		}
-	}
-	return false
-}
 
 type parseAction struct {
 	kind     string
@@ -979,53 +912,106 @@ func (a *parseAction) buildFunc(g *Grammar) parseFunc {
 	}
 }
 
-type Node struct {
-	name     string
-	start    int
-	end      int
-	children []int
-}
-
-type ParseTree struct {
+type parserState struct {
+	rules []parseFunc
 	buf   string
-	nodes []Node
-	root  int
+
+	length int
+	offset int
+
+	nodes    []Node
+	numNodes int
+	children []int
+
+	trace bool
+
+	// column int
+	// indent_column int
+	// for when we match n whitespace against a tab
+	// leftover_tab int
+	// leftover_tab pos
+	// indents, dedents
+	// parent
+	// values map[string]any
+
 }
 
-func (t *ParseTree) Walk(f func(*Node)) {
-	var walk func(int)
+func (s *parserState) copyInto(into *parserState) {
+	*into = *s
+}
 
-	walk = func(i int) {
-		n := &t.nodes[i]
-		for _, c := range n.children {
-			walk(c)
-		}
-		f(n)
+func (s *parserState) merge(new *parserState) {
+	*s = *new
+}
+func (s *parserState) trim(new *parserState) {
+	s.nodes = s.nodes[:s.numNodes]
+}
+func (s *parserState) startCapture(st *parserState) {
+	*st = *s
+	st.children = []int{}
+}
+func (s *parserState) mergeCapture(name string, new *parserState) {
+	node := Node{
+		name:     name,
+		start:    s.offset,
+		end:      new.offset,
+		children: new.children,
 	}
-	walk(t.root)
+	new.nodes = append(new.nodes[:new.numNodes], node)
+	new.children = append(s.children, new.numNodes)
+	new.numNodes = new.numNodes + 1
+	*s = *new
 }
 
-func (t *ParseTree) Build(builders map[string]BuilderFunc) (any, error) {
-	var build func(int) (any, error)
-
-	build = func(i int) (any, error) {
-		var err error
-		n := &t.nodes[i]
-		args := make([]any, len(n.children))
-		for idx, c := range n.children {
-			args[idx], err = build(c)
-			if err != nil {
-				return nil, err
-			}
+func (s *parserState) captureNode(name string) int {
+	if len(s.children) == 1 {
+		return s.children[0]
+	} else {
+		node := Node{
+			name:     name,
+			start:    0,
+			end:      s.offset,
+			children: s.children,
 		}
-		return builders[n.name](t.buf[n.start:n.end], args)
+		s.nodes = append(s.nodes[:s.numNodes], node)
+		s.children = []int{}
+		s.numNodes = s.numNodes + 1
+		return s.numNodes - 1
 	}
-	return build(t.root)
 }
 
-var ParseError = errors.New("failed to parse")
+func (s *parserState) atEnd() bool {
+	return s.offset >= s.length
+}
 
-type BuilderFunc func(string, []any) (any, error)
+func (s *parserState) peekByte() byte {
+	return s.buf[s.offset]
+}
+
+func (s *parserState) peekRune() (rune, int) {
+	return utf8.DecodeRuneInString(s.buf[s.offset:])
+}
+func (s *parserState) advance(v string) bool {
+	length_v := len(v)
+	if length_v+s.offset > s.length {
+		return false
+	}
+	b := s.buf[s.offset : s.offset+length_v]
+	if b == v {
+		s.offset += length_v
+		return true
+	}
+	return false
+}
+
+func (s *parserState) advanceAny(o []string) bool {
+	for _, v := range o {
+		if s.advance(v) {
+			return true
+		}
+	}
+	return false
+}
 
 type Parser struct {
 	rules    []parseFunc
@@ -1108,25 +1094,46 @@ func (p *Parser) testParseFunc(rule parseFunc, accept []string, reject []string)
 	return true
 }
 
-func BuildGrammar(stub func(*Grammar)) *Grammar {
-	g := &Grammar{}
-	g.LogFunc = Printf
-	g.pos = g.markPosition(grammarAction)
-	err := g.buildGrammar(stub)
-	if err != nil {
-		return &Grammar{err: err}
-	}
-	return g
+type Node struct {
+	name     string
+	start    int
+	end      int
+	children []int
 }
 
-func BuildParser(stub func(*Grammar)) *Parser {
-	g := &Grammar{}
-	g.LogFunc = Printf
-	g.pos = g.markPosition(grammarAction)
-	err := g.buildGrammar(stub)
-	if err != nil {
-		return &Parser{err: err}
-	}
+type ParseTree struct {
+	buf   string
+	nodes []Node
+	root  int
+}
 
-	return g.Parser()
+func (t *ParseTree) Walk(f func(*Node)) {
+	var walk func(int)
+
+	walk = func(i int) {
+		n := &t.nodes[i]
+		for _, c := range n.children {
+			walk(c)
+		}
+		f(n)
+	}
+	walk(t.root)
+}
+
+func (t *ParseTree) Build(builders map[string]BuilderFunc) (any, error) {
+	var build func(int) (any, error)
+
+	build = func(i int) (any, error) {
+		var err error
+		n := &t.nodes[i]
+		args := make([]any, len(n.children))
+		for idx, c := range n.children {
+			args[idx], err = build(c)
+			if err != nil {
+				return nil, err
+			}
+		}
+		return builders[n.name](t.buf[n.start:n.end], args)
+	}
+	return build(t.root)
 }
