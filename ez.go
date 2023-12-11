@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"unicode/utf8"
 )
 
 const (
@@ -349,7 +350,8 @@ func (g *Grammar) Range(s ...string) {
 
 	args := make([]string, len(s))
 	for i, v := range s {
-		if len(v) != 3 || v[1] != byte('-') {
+		r := []rune(v)
+		if len(r) != 3 || r[1] != '-' {
 			g.Error(p, "invalid range", v)
 			return
 		}
@@ -607,10 +609,13 @@ func (s *parserState) atEnd() bool {
 	return s.offset >= s.length
 }
 
-func (s *parserState) peek() byte {
+func (s *parserState) peekByte() byte {
 	return s.buf[s.offset]
 }
 
+func (s *parserState) peekRune() (rune, int) {
+	return utf8.DecodeRuneInString(s.buf[s.offset:])
+}
 func (s *parserState) advance(v string) bool {
 	length_v := len(v)
 	if length_v+s.offset > s.length {
@@ -759,20 +764,35 @@ func (a *parseAction) buildFunc(g *Grammar) parseFunc {
 		}
 	case rangeAction:
 		inverted := false
+		runeRanges := make([][]rune, len(a.ranges))
+		for i, v := range a.ranges {
+			n := []rune(v)
+			runeRanges[i] = []rune{n[0], n[2]}
+		}
 		return func(s *parserState) bool {
 			if s.atEnd() {
 				return false
 			}
-			r := s.peek()
-			for _, v := range a.ranges {
+			r, size := s.peekRune()
+			result := false
+			for _, v := range runeRanges {
 				minR := v[0]
-				maxR := v[2]
+				maxR := v[1]
 				if r >= minR && r <= maxR {
-					s.offset += 1
-					return !inverted
+					result = true
+					break
 				}
 			}
-			return inverted
+			if inverted {
+				result = !result
+			}
+
+			if result {
+				s.offset += size
+				return true
+			}
+
+			return false
 		}
 	case optionalAction:
 		rules := make([]parseFunc, len(a.args))
