@@ -17,6 +17,8 @@ const (
 	traceAction       = "Trace"
 	callAction        = "Call"
 	literalAction     = "Literal"
+	runeAction        = "Rune"
+	byteAction        = "Byte"
 	whitespaceAction  = "Whitespace"
 	newlineAction     = "Newline"
 	partialTabAction  = "PartialTab"
@@ -32,6 +34,7 @@ const (
 	rejectAction      = "Reject"
 	captureAction     = "Capture"
 	rangeAction       = "Range"
+	byteRangeAction   = "ByteRange"
 	indentAction      = "Indent"
 	dedentAction      = "Dedent"
 )
@@ -375,6 +378,26 @@ func (g *Grammar) Literal(s ...string) {
 	g.nb.append(a)
 }
 
+func (g *Grammar) Rune() {
+	p := g.markPosition(runeAction)
+	if g.shouldExit(p) {
+		return
+	}
+
+	a := &parseAction{kind: runeAction, pos: p}
+	g.nb.append(a)
+}
+
+func (g *Grammar) Byte() {
+	p := g.markPosition(byteAction)
+	if g.shouldExit(p) {
+		return
+	}
+
+	a := &parseAction{kind: byteAction, pos: p}
+	g.nb.append(a)
+}
+
 func (g *Grammar) Range(s ...string) RangeOptions {
 	p := g.markPosition(rangeAction)
 	ro := RangeOptions{
@@ -399,6 +422,35 @@ func (g *Grammar) Range(s ...string) RangeOptions {
 		args[i] = v
 	}
 	a := &parseAction{kind: rangeAction, ranges: args, pos: p}
+	ro.a = a
+	g.nb.append(a)
+	return ro
+}
+
+func (g *Grammar) ByteRange(s ...string) RangeOptions {
+	p := g.markPosition(rangeAction)
+	ro := RangeOptions{
+		g: g,
+		p: p,
+	}
+	if g.shouldExit(p) {
+		return ro
+	}
+	if len(s) == 0 {
+		g.Error(p, "missing operand")
+		return ro
+	}
+
+	args := make([]string, len(s))
+	for i, v := range s {
+		r := []byte(v)
+		if len(r) != 3 || r[1] != '-' {
+			g.Error(p, "invalid range", v)
+			return ro
+		}
+		args[i] = v
+	}
+	a := &parseAction{kind: byteRangeAction, ranges: args, pos: p}
 	ro.a = a
 	g.nb.append(a)
 	return ro
@@ -747,6 +799,23 @@ func (a *parseAction) buildFunc(g *Grammar) parseFunc {
 			}
 			return false
 		}
+	case runeAction:
+		return func(s *parserState) bool {
+			if s.atEnd() {
+				return false
+			}
+			_, n := s.peekRune()
+			s.offset += n
+			return true
+		}
+	case byteAction:
+		return func(s *parserState) bool {
+			if s.atEnd() {
+				return false
+			}
+			s.offset += 1
+			return true
+		}
 	case rangeAction:
 		inverted := a.inverted
 		runeRanges := make([][]rune, len(a.ranges))
@@ -774,6 +843,38 @@ func (a *parseAction) buildFunc(g *Grammar) parseFunc {
 
 			if result {
 				s.offset += size
+				return true
+			}
+
+			return false
+		}
+	case byteRangeAction:
+		inverted := a.inverted
+		runeRanges := make([][]byte, len(a.ranges))
+		for i, v := range a.ranges {
+			n := []byte(v)
+			runeRanges[i] = []byte{n[0], n[2]}
+		}
+		return func(s *parserState) bool {
+			if s.atEnd() {
+				return false
+			}
+			r := s.peekByte()
+			result := false
+			for _, v := range runeRanges {
+				minR := v[0]
+				maxR := v[1]
+				if r >= minR && r <= maxR {
+					result = true
+					break
+				}
+			}
+			if inverted {
+				result = !result
+			}
+
+			if result {
+				s.offset += 1
 				return true
 			}
 
@@ -1057,16 +1158,25 @@ func (p *Parser) Parse(s string) (any, error) {
 }
 
 func (p *Parser) testGrammar(accept []string, reject []string) bool {
+	if p.err != nil {
+		return false
+	}
 	start := p.rules[p.start]
 	return p.testParseFunc(start, accept, reject)
 }
 
 func (p *Parser) testRule(name string, accept []string, reject []string) bool {
+	if p.err != nil {
+		return false
+	}
 	start := p.rules[p.grammar.nameIdx[name]]
 	return p.testParseFunc(start, accept, reject)
 }
 
 func (p *Parser) testParseFunc(rule parseFunc, accept []string, reject []string) bool {
+	if p.err != nil {
+		return false
+	}
 	for _, s := range accept {
 		parserState := &parserState{
 			rules:  p.rules,

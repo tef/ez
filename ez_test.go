@@ -206,7 +206,6 @@ func TestLogger(t *testing.T) {
 }
 func TestParser(t *testing.T) {
 	var parser *Parser
-	var err error
 	var ok bool
 
 	parser = BuildParser(func(g *Grammar) {
@@ -215,7 +214,11 @@ func TestParser(t *testing.T) {
 			g.Call("test_literal")
 			g.Call("test_optional")
 			g.Call("test_range")
-			g.Call("test_inverted")
+			g.Call("test_inverted_range")
+			g.Call("test_rune")
+			g.Call("test_byte")
+			g.Call("test_byterange")
+			g.Call("test_inverted_byterange")
 		})
 
 		g.Define("test_literal", func() {
@@ -234,14 +237,24 @@ func TestParser(t *testing.T) {
 		g.Define("test_range", func() {
 			g.Range("0-9")
 		})
-		g.Define("test_inverted", func() {
+		g.Define("test_inverted_range", func() {
 			g.Range("0-9").Invert()
 		})
-
-		// test optional
+		g.Define("test_rune", func() {
+			g.Rune()
+		})
+		g.Define("test_byte", func() {
+			g.Byte()
+		})
+		g.Define("test_byterange", func() {
+			g.ByteRange("0-9")
+		})
+		g.Define("test_inverted_byterange", func() {
+			g.ByteRange("0-9").Invert()
+		})
 	})
 
-	if err != nil {
+	if parser.err != nil {
 		t.Errorf("error defining grammar:\n%v", parser.err)
 	} else {
 		ok = parser.testRule("test_literal",
@@ -265,12 +278,27 @@ func TestParser(t *testing.T) {
 		if !ok {
 			t.Error("range test case failed")
 		}
-		ok = parser.testRule("test_inverted",
+		ok = parser.testRule("test_inverted_range",
 			[]string{"a", "b", "c", "A", "B", "C"},
 			[]string{"", "0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10"},
 		)
 		if !ok {
-			t.Error("range test case failed")
+			t.Error("inverted range test case failed")
+		}
+		ok = parser.testRule("test_rune",
+			[]string{"a", "A"},
+			[]string{"", "aa"},
+		)
+		if !ok {
+			t.Error("rune test case failed")
+		}
+
+		ok = parser.testRule("test_byte",
+			[]string{"a", "A"},
+			[]string{"", "aa"},
+		)
+		if !ok {
+			t.Error("byte test case failed")
 		}
 	}
 }
