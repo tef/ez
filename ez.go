@@ -127,6 +127,7 @@ type Grammar struct {
 	Start       string
 	Whitespaces []string
 	Newlines    []string
+	Tabstop     int
 	LogFunc     func(string, ...any)
 
 	rules   []*parseAction
@@ -271,7 +272,9 @@ func (g *Grammar) buildGrammar(stub func(*Grammar)) error {
 	g.builders = make(map[string]BuilderFunc, 0)
 	g.builderPos = make(map[string]int, 0)
 	g.nb = &nodeBuilder{kind: grammarAction}
-
+	g.Tabstop = 8
+	g.Whitespaces = []string{" ", "\t"}
+	g.Newlines = []string{"\r\n", "\r", "\n"}
 	stub(g)
 	g.nb = nil
 
@@ -353,6 +356,47 @@ func (g *Grammar) Newline() {
 	a := &parseAction{kind: newlineAction, pos: p}
 	g.nb.append(a)
 }
+
+func (g *Grammar) StartOfFile() {
+	p := g.markPosition(startOfFileAction)
+	if g.shouldExit(p) {
+		return
+	}
+
+	a := &parseAction{kind:startOfFileAction, pos: p}
+	g.nb.append(a)
+}
+
+func (g *Grammar) EndOfFile() {
+	p := g.markPosition(endOfFileAction)
+	if g.shouldExit(p) {
+		return
+	}
+
+	a := &parseAction{kind:endOfFileAction, pos: p}
+	g.nb.append(a)
+}
+
+func (g *Grammar) StartOfLine() {
+	p := g.markPosition(startOfLineAction)
+	if g.shouldExit(p) {
+		return
+	}
+
+	a := &parseAction{kind:startOfLineAction, pos: p}
+	g.nb.append(a)
+}
+
+func (g *Grammar) EndOfLine() {
+	p := g.markPosition(endOfLineAction)
+	if g.shouldExit(p) {
+		return
+	}
+
+	a := &parseAction{kind:endOfLineAction, pos: p}
+	g.nb.append(a)
+}
+
 
 func (g *Grammar) Call(name string) {
 	p := g.markPosition(callAction)
@@ -695,7 +739,7 @@ func (a *parseAction) buildFunc(g *Grammar) parseFunc {
 		fn := g.LogFunc
 		return func(s *parserState) bool {
 			msg := fmt.Sprint(a.message...)
-			fn("%v: Print(%q) called, at offset %v\n", prefix, msg, s.offset)
+			fn("%v: Print(%q) called, at offset %v, column %v\n", prefix, msg, s.offset, s.column)
 			return true
 		}
 	case traceAction:
@@ -762,7 +806,7 @@ func (a *parseAction) buildFunc(g *Grammar) parseFunc {
 	case whitespaceAction:
 		return func(s *parserState) bool {
 			for {
-				if !s.advanceAny(g.Whitespaces) {
+				if !s.acceptAny(g.Whitespaces) {
 					break
 				}
 			}
@@ -770,16 +814,16 @@ func (a *parseAction) buildFunc(g *Grammar) parseFunc {
 		}
 	case newlineAction:
 		return func(s *parserState) bool {
-			return s.advanceAny(g.Newlines)
+			return s.acceptAny(g.Newlines)
 		}
 
 	case startOfLineAction:
 		return func(s *parserState) bool {
-			return true // column = 0
+			return s.column == 0
 		}
 	case endOfLineAction:
 		return func(s *parserState) bool {
-			return s.advanceAny(g.Newlines)
+			return s.acceptAny(g.Newlines)
 		}
 	case startOfFileAction:
 		return func(s *parserState) bool {
@@ -787,13 +831,13 @@ func (a *parseAction) buildFunc(g *Grammar) parseFunc {
 		}
 	case endOfFileAction:
 		return func(s *parserState) bool {
-			return s.offset == len(s.buf)
+			return s.offset == s.length
 		}
 
 	case literalAction:
 		return func(s *parserState) bool {
 			for _, v := range a.literals {
-				if s.advance(v) {
+				if s.accept(v) {
 					return true
 				}
 			}
@@ -805,7 +849,7 @@ func (a *parseAction) buildFunc(g *Grammar) parseFunc {
 				return false
 			}
 			_, n := s.peekRune()
-			s.offset += n
+			s.advance(n)
 			return true
 		}
 	case byteAction:
@@ -813,7 +857,7 @@ func (a *parseAction) buildFunc(g *Grammar) parseFunc {
 			if s.atEnd() {
 				return false
 			}
-			s.offset += 1
+			s.advance(1)
 			return true
 		}
 	case rangeAction:
@@ -842,7 +886,7 @@ func (a *parseAction) buildFunc(g *Grammar) parseFunc {
 			}
 
 			if result {
-				s.offset += size
+				s.advance(size)
 				return true
 			}
 
@@ -850,10 +894,10 @@ func (a *parseAction) buildFunc(g *Grammar) parseFunc {
 		}
 	case byteRangeAction:
 		inverted := a.inverted
-		runeRanges := make([][]byte, len(a.ranges))
+		byteRanges := make([][]byte, len(a.ranges))
 		for i, v := range a.ranges {
 			n := []byte(v)
-			runeRanges[i] = []byte{n[0], n[2]}
+			byteRanges[i] = []byte{n[0], n[2]}
 		}
 		return func(s *parserState) bool {
 			if s.atEnd() {
@@ -861,7 +905,7 @@ func (a *parseAction) buildFunc(g *Grammar) parseFunc {
 			}
 			r := s.peekByte()
 			result := false
-			for _, v := range runeRanges {
+			for _, v := range byteRanges {
 				minR := v[0]
 				maxR := v[1]
 				if r >= minR && r <= maxR {
@@ -874,7 +918,7 @@ func (a *parseAction) buildFunc(g *Grammar) parseFunc {
 			}
 
 			if result {
-				s.offset += 1
+				s.advance(1)
 				return true
 			}
 
@@ -1017,8 +1061,10 @@ type parserState struct {
 	rules []parseFunc
 	buf   string
 
-	length int
-	offset int
+	length  int
+	offset  int
+	column  int
+	tabstop int
 
 	nodes    []Node
 	numNodes int
@@ -1026,12 +1072,11 @@ type parserState struct {
 
 	trace bool
 
-	// column int
 	// indent_column int
 	// for when we match n whitespace against a tab
 	// leftover_tab int
 	// leftover_tab pos
-	// indents, dedents
+	// indents, dedent
 	// parent
 	// values map[string]any
 
@@ -1092,22 +1137,45 @@ func (s *parserState) peekByte() byte {
 func (s *parserState) peekRune() (rune, int) {
 	return utf8.DecodeRuneInString(s.buf[s.offset:])
 }
-func (s *parserState) advance(v string) bool {
+
+func (s *parserState) advance(length int) {
+	newOffset := s.offset + length
+	for i := s.offset; i < newOffset; i++ {
+		switch s.buf[i] {
+		case byte('\t'):
+			width := (s.tabstop - ((s.column) % s.tabstop))
+			s.column += width
+		case byte('\r'):
+			s.column = 0
+		case byte('\n'):
+			if i > 1 && s.buf[i-1] != byte('\r') {
+				s.column = 0
+			}
+
+		default:
+			s.column += 1
+		}
+	}
+	s.offset = newOffset
+
+}
+
+func (s *parserState) accept(v string) bool {
 	length_v := len(v)
 	if length_v+s.offset > s.length {
 		return false
 	}
 	b := s.buf[s.offset : s.offset+length_v]
 	if b == v {
-		s.offset += length_v
+		s.advance(length_v)
 		return true
 	}
 	return false
 }
 
-func (s *parserState) advanceAny(o []string) bool {
+func (s *parserState) acceptAny(o []string) bool {
 	for _, v := range o {
-		if s.advance(v) {
+		if s.accept(v) {
 			return true
 		}
 	}
@@ -1122,15 +1190,20 @@ type Parser struct {
 	err      error
 }
 
+func (p *Parser) newParserState(s string) *parserState {
+	return &parserState{
+		rules:   p.rules,
+		buf:     s,
+		length:  len(s),
+		tabstop: p.grammar.Tabstop,
+	}
+}
+
 func (p *Parser) ParseTree(s string) (*ParseTree, error) {
 	if p.err != nil {
 		return nil, p.err
 	}
-	parserState := &parserState{
-		rules:  p.rules,
-		buf:    s,
-		length: len(s),
-	}
+	parserState := p.newParserState(s)
 	start := p.rules[p.start]
 	if start(parserState) && parserState.atEnd() {
 		name := p.grammar.Start
@@ -1169,7 +1242,11 @@ func (p *Parser) testRule(name string, accept []string, reject []string) bool {
 	if p.err != nil {
 		return false
 	}
-	start := p.rules[p.grammar.nameIdx[name]]
+	n, ok := p.grammar.nameIdx[name]
+	if !ok {
+		return false
+	}
+	start := p.rules[n]
 	return p.testParseFunc(start, accept, reject)
 }
 
@@ -1178,11 +1255,7 @@ func (p *Parser) testParseFunc(rule parseFunc, accept []string, reject []string)
 		return false
 	}
 	for _, s := range accept {
-		parserState := &parserState{
-			rules:  p.rules,
-			buf:    s,
-			length: len(s),
-		}
+		parserState := p.newParserState(s)
 		complete := rule(parserState) && parserState.atEnd()
 
 		if !complete {
@@ -1190,11 +1263,7 @@ func (p *Parser) testParseFunc(rule parseFunc, accept []string, reject []string)
 		}
 	}
 	for _, s := range reject {
-		parserState := &parserState{
-			rules:  p.rules,
-			buf:    s,
-			length: len(s),
-		}
+		parserState := p.newParserState(s)
 		complete := rule(parserState) && parserState.atEnd()
 
 		if complete {

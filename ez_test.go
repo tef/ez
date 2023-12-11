@@ -303,7 +303,7 @@ func TestParser(t *testing.T) {
 	}
 }
 
-func TestGrammar(t *testing.T) {
+func TestWhitespace(t *testing.T) {
 	var parser *Parser
 	var ok bool
 
@@ -313,32 +313,24 @@ func TestGrammar(t *testing.T) {
 		g.Newlines = []string{"\r\n", "\r", "\n"}
 
 		g.Define("expr", func() {
-			g.Choice(func() {
-				//	g.Print("test")
-				g.Call("truerule")
-			}, func() {
-				g.Call("falserule")
-			})
+			g.StartOfLine()
+			g.Literal("example")
+			g.Newline()
+			g.StartOfLine()
+			g.EndOfFile()
 		})
 
-		g.Define("truerule", func() {
-			g.Literal("true")
-		})
-
-		g.Define("falserule", func() {
-			g.Literal("false")
-		})
 	})
 
 	if parser.err != nil {
 		t.Errorf("error defining grammar:\n%v", parser.err)
 	} else {
-		ok = parser.testRule("test_optional",
-			[]string{"true", "false"},
-			[]string{"", "true1", "0false", "null"},
+		ok = parser.testRule("expr",
+			[]string{"example\n", "example\r", "example\r\n"},
+			[]string{"", "example\n\n", "\nexample"},
 		)
 		if !ok {
-			t.Error("rules test case failed")
+			t.Error("column test case failed")
 		}
 	}
 }
