@@ -729,7 +729,7 @@ func (a *parseAction) buildFunc(g *Grammar) parseFunc {
 				fn("%v: Call(%q) starting, at offset %v\n", prefix, name, s.offset)
 			}
 
-			rule := s.rules[idx]
+			rule := s.rules[idx] // can't move this out to runtime unless we reorder defs
 			out := rule(s)
 
 			if s.trace {
@@ -978,16 +978,20 @@ func (t *NodeTree) Walk(f func(*Node)) {
 	walk(t.root)
 }
 
-type Builder func(*Node, []any) any
+type BuilderFunc func(*Node, []any) (any, error)
 
-func (t *NodeTree) Build(builders map[string]Builder) any {
-	var build func(int) any
+func (t *NodeTree) Build(builders map[string]BuilderFunc) (any, error) {
+	var build func(int) (any, error)
 
-	build = func(i int) any {
+	build = func(i int) (any, error) {
+		var err error
 		n := &t.nodes[i]
 		args := make([]any, len(n.children))
 		for idx, c := range n.children {
-			args[idx] = build(c)
+			args[idx], err = build(c)
+			if err != nil {
+				return nil, err
+			}
 		}
 		return builders[n.name](n, args)
 	}

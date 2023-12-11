@@ -415,16 +415,16 @@ func TestCapture(t *testing.T) {
 			}
 		}
 
-		builders := map[string]Builder{
-			"main": func(n *Node, args []any) any {
+		builders := map[string]BuilderFunc{
+			"main": func(n *Node, args []any) (any, error) {
 				s := tree.buf[n.start:n.end]
-				return &s
+				return &s, nil
 			},
 		}
 
-		out := tree.Build(builders)
+		out, err := tree.Build(builders)
 
-		if out == nil {
+		if err != nil || out == nil {
 			t.Error("build failed")
 		} else {
 			s, ok := out.(*string)
