@@ -535,10 +535,10 @@ func (g *Grammar) Check() error {
 	return g.err
 }
 
-func (g *Grammar) Parser() (*Parser, error) {
+func (g *Grammar) Parser() *Parser {
 	if g.Check() != nil {
 		p := &Parser{err: g.err}
-		return p, g.err
+		return p
 	}
 
 	rules := make([]parseFunc, len(g.rules))
@@ -554,7 +554,7 @@ func (g *Grammar) Parser() (*Parser, error) {
 		rules:   rules,
 		grammar: g,
 	}
-	return p, nil
+	return p
 }
 
 type parseFunc func(*parserState) bool
@@ -1059,24 +1059,24 @@ func (p *Parser) testParseFunc(rule parseFunc, accept []string, reject []string)
 	return true
 }
 
-func BuildGrammar(stub func(*Grammar)) (*Grammar, error) {
+func BuildGrammar(stub func(*Grammar)) *Grammar {
 	g := &Grammar{}
 	g.LogFunc = Printf
 	g.pos = g.markPosition(grammarAction)
 	err := g.buildGrammar(stub)
 	if err != nil {
-		return nil, err
+		return &Grammar{err: err}
 	}
-	return g, nil
+	return g
 }
 
-func BuildParser(stub func(*Grammar)) (*Parser, error) {
+func BuildParser(stub func(*Grammar)) *Parser {
 	g := &Grammar{}
 	g.LogFunc = Printf
 	g.pos = g.markPosition(grammarAction)
 	err := g.buildGrammar(stub)
 	if err != nil {
-		return nil, err
+		return &Parser{err: err}
 	}
 
 	return g.Parser()

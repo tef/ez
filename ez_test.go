@@ -9,43 +9,43 @@ import (
 // t.Fatal(...) FatalF,  mark fail, exit
 
 func TestErrors(t *testing.T) {
-	var err error
+	var g *Grammar
 
 	// grammars need a start and one rule
 
-	_, err = BuildGrammar(func(g *Grammar) {})
-	if err == nil {
+	g = BuildGrammar(func(g *Grammar) {})
+	if g.err == nil {
 		t.Error("empty grammar should raise error")
 	} else {
-		t.Logf("test grammar raised error:\n %v", err)
+		t.Logf("test grammar raised error:\n %v", g.err)
 	}
 
 	// start rule must exist
-	_, err = BuildGrammar(func(g *Grammar) {
+	g = BuildGrammar(func(g *Grammar) {
 		g.Start = "missing"
 	})
-	if err == nil {
+	if g.err == nil {
 		t.Error("missing start should raise error")
 	} else {
-		t.Logf("test grammar raised error:\n %v", err)
+		t.Logf("test grammar raised error:\n %v", g.err)
 	}
 
 	// all called rules must be defined
-	_, err = BuildGrammar(func(g *Grammar) {
+	g = BuildGrammar(func(g *Grammar) {
 		g.Start = "expr"
 
 		g.Define("expr", func() {
 			g.Call("missing")
 		})
 	})
-	if err == nil {
+	if g.err == nil {
 		t.Error("missing rule should raise error")
 	} else {
-		t.Logf("test grammar raised error:\n %v", err)
+		t.Logf("test grammar raised error:\n %v", g.err)
 	}
 
 	// all defined rules must be called
-	_, err = BuildGrammar(func(g *Grammar) {
+	g = BuildGrammar(func(g *Grammar) {
 		g.Start = "expr"
 
 		g.Define("expr", func() {
@@ -54,14 +54,14 @@ func TestErrors(t *testing.T) {
 		})
 	})
 
-	if err == nil {
+	if g.err == nil {
 		t.Error("unused rule should raise error")
 	} else {
-		t.Logf("test grammar raised error:\n %v", err)
+		t.Logf("test grammar raised error:\n %v", g.err)
 	}
 
 	// nested defines should fail
-	_, err = BuildGrammar(func(g *Grammar) {
+	g = BuildGrammar(func(g *Grammar) {
 		g.Start = "expr"
 
 		g.Define("expr", func() {
@@ -70,27 +70,27 @@ func TestErrors(t *testing.T) {
 		})
 	})
 
-	if err == nil {
+	if g.err == nil {
 		t.Error("nested define should raise error")
 	} else {
-		t.Logf("test grammar raised error:\n %v", err)
+		t.Logf("test grammar raised error:\n %v", g.err)
 	}
 	// operators outside defines should fail
-	_, err = BuildGrammar(func(g *Grammar) {
+	g = BuildGrammar(func(g *Grammar) {
 		g.Start = "expr"
 
 		g.Define("expr", func() {})
 		g.Literal("true")
 	})
 
-	if err == nil {
+	if g.err == nil {
 		t.Error("builder outside define should raise error")
 	} else {
-		t.Logf("test grammar raised error:\n %v", err)
+		t.Logf("test grammar raised error:\n %v", g.err)
 	}
 
 	// calling builders outside should fail
-	g, err := BuildGrammar(func(g *Grammar) {
+	g = BuildGrammar(func(g *Grammar) {
 		g.Start = "expr"
 
 		g.Define("expr", func() {})
@@ -112,7 +112,7 @@ func TestErrors(t *testing.T) {
 		t.Logf("test grammar raised error:\n %v", g.err)
 	}
 	// invert must be called after Range
-	_, err = BuildGrammar(func(g *Grammar) {
+	g = BuildGrammar(func(g *Grammar) {
 		g.Start = "expr"
 
 		g.Define("expr", func() {
@@ -122,21 +122,21 @@ func TestErrors(t *testing.T) {
 		})
 	})
 
-	if err == nil {
+	if g.err == nil {
 		t.Error("bad invert should raise error")
 	} else {
-		t.Logf("test grammar raised error:\n %v", err)
+		t.Logf("test grammar raised error:\n %v", g.err)
 	}
 
 }
 func TestLogger(t *testing.T) {
 	var parser *Parser
-	var err error
 	var ok bool
 	var logMessages int
 
 	logMessages = 0
-	parser, err = BuildParser(func(g *Grammar) {
+
+	parser = BuildParser(func(g *Grammar) {
 		g.Start = "expr"
 
 		g.LogFunc = func(f string, o ...any) {
@@ -151,8 +151,8 @@ func TestLogger(t *testing.T) {
 		})
 	})
 
-	if err != nil {
-		t.Errorf("error defining grammar:\n%v", err)
+	if parser.err != nil {
+		t.Errorf("error defining grammar:\n%v", parser.err)
 	} else {
 		ok = parser.testGrammar(
 			[]string{"TEST"},
@@ -169,7 +169,7 @@ func TestLogger(t *testing.T) {
 
 	logMessages = 0
 
-	parser, err = BuildParser(func(g *Grammar) {
+	parser = BuildParser(func(g *Grammar) {
 		g.Start = "expr"
 
 		g.LogFunc = func(f string, o ...any) {
@@ -187,8 +187,8 @@ func TestLogger(t *testing.T) {
 		})
 	})
 
-	if err != nil {
-		t.Errorf("error defining grammar:\n%v", err)
+	if parser.err != nil {
+		t.Errorf("error defining grammar:\n%v", parser.err)
 	} else {
 		ok = parser.testGrammar(
 			[]string{"TEST"},
@@ -209,7 +209,7 @@ func TestParser(t *testing.T) {
 	var err error
 	var ok bool
 
-	parser, err = BuildParser(func(g *Grammar) {
+	parser = BuildParser(func(g *Grammar) {
 		g.Start = "start"
 		g.Define("start", func() {
 			g.Call("test_literal")
@@ -242,7 +242,7 @@ func TestParser(t *testing.T) {
 	})
 
 	if err != nil {
-		t.Errorf("error defining grammar:\n%v", err)
+		t.Errorf("error defining grammar:\n%v", parser.err)
 	} else {
 		ok = parser.testRule("test_literal",
 			[]string{"example"},
@@ -277,10 +277,9 @@ func TestParser(t *testing.T) {
 
 func TestGrammar(t *testing.T) {
 	var parser *Parser
-	var err error
 	var ok bool
 
-	parser, err = BuildParser(func(g *Grammar) {
+	parser = BuildParser(func(g *Grammar) {
 		g.Start = "expr"
 		g.Whitespaces = []string{" ", "\t"}
 		g.Newlines = []string{"\r\n", "\r", "\n"}
@@ -303,8 +302,8 @@ func TestGrammar(t *testing.T) {
 		})
 	})
 
-	if err != nil {
-		t.Errorf("error defining grammar:\n%v", err)
+	if parser.err != nil {
+		t.Errorf("error defining grammar:\n%v", parser.err)
 	} else {
 		ok = parser.testRule("test_optional",
 			[]string{"true", "false"},
@@ -318,11 +317,10 @@ func TestGrammar(t *testing.T) {
 
 func TestCapture(t *testing.T) {
 	var parser *Parser
-	var err error
 	var ok bool
 	var tree *NodeTree
 
-	parser, err = BuildParser(func(g *Grammar) {
+	parser = BuildParser(func(g *Grammar) {
 		g.Start = "start"
 		g.Define("start", func() {
 			g.Capture("main", func() {
@@ -344,8 +342,8 @@ func TestCapture(t *testing.T) {
 		})
 	})
 
-	if err != nil {
-		t.Errorf("error defining grammar:\n%v", err)
+	if parser.err != nil {
+		t.Errorf("error defining grammar:\n%v", parser.err)
 	} else {
 		ok = parser.testGrammar(
 			[]string{"ABC", "ABCD"},
@@ -355,9 +353,9 @@ func TestCapture(t *testing.T) {
 			t.Error("literal test case failed")
 		}
 
-		tree, err = parser.Parse("ABC")
+		tree, parser.err = parser.Parse("ABC")
 
-		if err != nil {
+		if parser.err != nil {
 			t.Error("literal test case failed")
 		} else {
 			t.Log("ABC parsed")
@@ -369,9 +367,9 @@ func TestCapture(t *testing.T) {
 			}
 		}
 
-		tree, err = parser.Parse("ABCD")
+		tree, parser.err = parser.Parse("ABCD")
 
-		if err != nil {
+		if parser.err != nil {
 			t.Error("literal test case failed")
 		} else {
 			t.Log("ABCD parsed")
@@ -383,7 +381,7 @@ func TestCapture(t *testing.T) {
 			}
 		}
 	}
-	parser, err = BuildParser(func(g *Grammar) {
+	parser = BuildParser(func(g *Grammar) {
 		g.Start = "start"
 		g.Define("start", func() {
 			g.Capture("main", func() {
@@ -392,8 +390,8 @@ func TestCapture(t *testing.T) {
 		})
 	})
 
-	if err != nil {
-		t.Errorf("error defining grammar:\n%v", err)
+	if parser.err != nil {
+		t.Errorf("error defining grammar:\n%v", parser.err)
 	} else {
 		ok = parser.testGrammar(
 			[]string{"A"},
@@ -403,9 +401,9 @@ func TestCapture(t *testing.T) {
 			t.Error("literal test case failed")
 		}
 
-		tree, err = parser.Parse("A")
+		tree, parser.err = parser.Parse("A")
 
-		if err != nil {
+		if parser.err != nil {
 			t.Error("literal test case failed")
 		} else {
 			t.Log("A parsed")
