@@ -319,6 +319,7 @@ func TestCapture(t *testing.T) {
 	var parser *Parser
 	var ok bool
 	var tree *ParseTree
+	var err error
 
 	parser = BuildParser(func(g *Grammar) {
 		g.Start = "start"
@@ -353,9 +354,9 @@ func TestCapture(t *testing.T) {
 			t.Error("literal test case failed")
 		}
 
-		tree, parser.err = parser.ParseTree("ABC")
+		tree, err = parser.ParseTree("ABC")
 
-		if parser.err != nil {
+		if err != nil {
 			t.Error("literal test case failed")
 		} else {
 			t.Log("ABC parsed")
@@ -367,9 +368,9 @@ func TestCapture(t *testing.T) {
 			}
 		}
 
-		tree, parser.err = parser.ParseTree("ABCD")
+		tree, err = parser.ParseTree("ABCD")
 
-		if parser.err != nil {
+		if err != nil {
 			t.Error("literal test case failed")
 		} else {
 			t.Log("ABCD parsed")
@@ -388,6 +389,9 @@ func TestCapture(t *testing.T) {
 				g.Literal("A")
 			})
 		})
+		g.Builder("main", func(s string, args []any) (any, error) {
+			return &s, nil
+		})
 	})
 
 	if parser.err != nil {
@@ -401,9 +405,9 @@ func TestCapture(t *testing.T) {
 			t.Error("literal test case failed")
 		}
 
-		tree, parser.err = parser.ParseTree("A")
+		tree, err = parser.ParseTree("A")
 
-		if parser.err != nil {
+		if err != nil {
 			t.Error("literal test case failed")
 		} else {
 			t.Log("A parsed")
@@ -415,14 +419,8 @@ func TestCapture(t *testing.T) {
 			}
 		}
 
-		builders := map[string]BuilderFunc{
-			"main": func(n *Node, args []any) (any, error) {
-				s := tree.buf[n.start:n.end]
-				return &s, nil
-			},
-		}
-
-		out, err := tree.Build(builders)
+		t.Logf("builders %v", parser.builders)
+		out, err := parser.Parse("A")
 
 		if err != nil || out == nil {
 			t.Error("build failed")

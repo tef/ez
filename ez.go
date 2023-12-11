@@ -12,6 +12,7 @@ import (
 const (
 	grammarAction     = "Grammar"
 	defineAction      = "Define"
+	builderAction     = "Builder"
 	printAction       = "Print"
 	traceAction       = "Trace"
 	callAction        = "Call"
@@ -104,6 +105,9 @@ type Grammar struct {
 
 	rulePos []int // posInfo[rulePos[ruleNum]]
 	posInfo []filePosition
+
+	builders   map[string]BuilderFunc
+	builderPos map[string]int
 
 	nb *nodeBuilder
 
@@ -231,6 +235,8 @@ func (g *Grammar) buildGrammar(stub func(*Grammar)) error {
 	}
 	g.nameIdx = make(map[string]int, 0)
 	g.callPos = make(map[string][]int, 0)
+	g.builders = make(map[string]BuilderFunc, 0)
+	g.builderPos = make(map[string]int, 0)
 	g.nb = &nodeBuilder{kind: grammarAction}
 
 	stub(g)
@@ -535,6 +541,27 @@ func (g *Grammar) Check() error {
 	return g.err
 }
 
+func (g *Grammar) Builder(name string, stub BuilderFunc) {
+	p := g.markPosition(builderAction)
+	if g.err != nil {
+		return
+	} else if g.nb == nil {
+		g.Error(p, "must call Builder() inside grammar")
+		return
+	} else if g.nb.inRule() {
+		g.Error(p, "cant call Builder() inside define")
+		return
+	}
+
+	if _, ok := g.builders[name]; ok {
+		oldPos := g.builderPos[name]
+		g.Errorf(p, "cant redefine %q, already defined at %v", name, oldPos)
+		return
+	}
+	g.builderPos[name] = p
+	g.builders[name] = stub
+}
+
 func (g *Grammar) Parser() *Parser {
 	if g.Check() != nil {
 		p := &Parser{err: g.err}
@@ -550,9 +577,10 @@ func (g *Grammar) Parser() *Parser {
 	start := g.nameIdx[g.Start]
 
 	p := &Parser{
-		start:   start,
-		rules:   rules,
-		grammar: g,
+		start:    start,
+		rules:    rules,
+		builders: g.builders,
+		grammar:  g,
 	}
 	return p
 }
@@ -990,14 +1018,14 @@ func (t *ParseTree) Build(builders map[string]BuilderFunc) (any, error) {
 				return nil, err
 			}
 		}
-		return builders[n.name](n, args)
+		return builders[n.name](t.buf[n.start:n.end], args)
 	}
 	return build(t.root)
 }
 
 var ParseError = errors.New("failed to parse")
 
-type BuilderFunc func(*Node, []any) (any, error)
+type BuilderFunc func(string, []any) (any, error)
 
 type Parser struct {
 	rules    []parseFunc
