@@ -128,6 +128,38 @@ func TestErrors(t *testing.T) {
 		t.Logf("test grammar raised error:\n %v", g.err)
 	}
 
+	// can't call whitespace inside Binary Mode
+	g = BuildGrammar(func(g *Grammar) {
+		g.Mode = BinaryMode()
+		g.Start = "expr"
+
+		g.Define("expr", func() {
+			g.Whitespace()
+		})
+	})
+
+	if g.err == nil {
+		t.Error("whitespace should raise error")
+	} else {
+		t.Logf("test grammar raised error:\n %v", g.err)
+	}
+
+	// cant use unicode inside binary mode
+	g = BuildGrammar(func(g *Grammar) {
+		g.Mode = BinaryMode()
+		g.Start = "expr"
+
+		g.Define("expr", func() {
+			g.Literal("\uFFEF")
+		})
+	})
+
+	if g.err == nil {
+		t.Error("rune should raise error")
+	} else {
+		t.Logf("test grammar raised error:\n %v", g.err)
+	}
+
 }
 func TestLogger(t *testing.T) {
 	var parser *Parser
@@ -309,7 +341,7 @@ func TestWhitespace(t *testing.T) {
 
 	parser = BuildParser(func(g *Grammar) {
 		g.Start = "expr"
-		g.Mode = &Byte{}
+		g.Mode = BinaryMode()
 
 		g.Define("expr", func() {
 			g.Literal("example")
@@ -331,12 +363,7 @@ func TestWhitespace(t *testing.T) {
 
 	parser = BuildParser(func(g *Grammar) {
 		g.Start = "expr"
-		g.Mode = &Text{
-			Whitespace: []string{" ", "\t"},
-			Newline:    []string{"\r\n", "\r", "\n"},
-			Tabstop:    8,
-		}
-
+		g.Mode = TextMode()
 		g.Define("expr", func() {
 			g.StartOfLine()
 			g.Literal("example")

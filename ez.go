@@ -46,6 +46,18 @@ func Printf(format string, a ...any) {
 	fmt.Printf(format, a...)
 }
 
+func TextMode() ParserMode {
+	return &textMode{
+		whitespace: []string{" ", "\t"},
+		newline:    []string{"\r\n", "\r", "\n"},
+		Tabstop:    8,
+	}
+}
+
+func BinaryMode() ParserMode {
+	return &binaryMode{}
+}
+
 func BuildGrammar(stub func(*Grammar)) *Grammar {
 	g := &Grammar{}
 	g.LogFunc = Printf
@@ -74,24 +86,87 @@ func BuildParser(stub func(*Grammar)) *Parser {
 //
 
 type ParserMode interface {
+	name() string
 	lineParser() *lineParser
+	actionAllowed(string) bool
+	check() bool
+	acceptLiteral(string) bool
 }
 
-type Byte struct {
+type binaryMode struct{}
+
+var byteDisabled = []string{
+	runeAction,
+	whitespaceAction,
+	newlineAction,
+	partialTabAction,
+	startOfLineAction,
+	endOfLineAction,
+	rangeAction,
+	indentAction,
+	dedentAction,
 }
 
-func (*Byte) lineParser() *lineParser {
+func (*binaryMode) name() string {
+	return "binary mode"
+}
+
+func (*binaryMode) lineParser() *lineParser {
 	return nil
 }
 
-type Text struct {
-	Whitespace []string
-	Newline    []string
-	Tabstop    int
+func (*binaryMode) actionAllowed(s string) bool {
+	for _, v := range byteDisabled {
+		if v == s {
+			return false
+		}
+	}
+	return true
 }
 
-func (t *Text) lineParser() *lineParser {
+func (*binaryMode) check() bool {
+	return true
+}
+func (*binaryMode) acceptLiteral(s string) bool {
+	for _, r := range s {
+		if r >= 255 {
+			return false
+		}
+	}
+	return true
+}
+
+var textDisabled = []string{}
+
+type textMode struct {
+	whitespace []string
+	// Tab
+	newline []string
+	Tabstop int
+}
+
+func (t *textMode) lineParser() *lineParser {
 	return &lineParser{tabstop: t.Tabstop}
+}
+
+func (*textMode) name() string {
+	return "text mode"
+}
+
+func (*textMode) actionAllowed(s string) bool {
+	for _, v := range textDisabled {
+		if v == s {
+			return false
+		}
+	}
+	return true
+}
+func (*textMode) check() bool {
+	return true
+}
+
+func (*textMode) acceptLiteral(s string) bool {
+	return true
 }
 
 type filePosition struct {
@@ -244,7 +319,7 @@ func (g *Grammar) markPosition(actionKind string) int {
 	return p
 }
 
-func (g *Grammar) shouldExit(pos int) bool {
+func (g *Grammar) shouldExit(pos int, kind string) bool {
 	if g.err != nil {
 		return true
 	}
@@ -254,6 +329,14 @@ func (g *Grammar) shouldExit(pos int) bool {
 	}
 	if !g.nb.inRule() {
 		g.Error(pos, "must call builder methods inside Define()")
+		return true
+	}
+	if g.Mode == nil {
+		g.Error(pos, "no Mode set")
+		return true
+	}
+	if !g.Mode.actionAllowed(kind) {
+		g.Errorf(pos, "cannot call %v() in %v", kind, g.Mode.name())
 		return true
 	}
 	return false
@@ -291,11 +374,7 @@ func (g *Grammar) buildGrammar(stub func(*Grammar)) error {
 	g.builders = make(map[string]BuilderFunc, 0)
 	g.builderPos = make(map[string]int, 0)
 	g.nb = &nodeBuilder{kind: grammarAction}
-	g.Mode = &Text{
-		Whitespace: []string{" ", "\t"},
-		Newline:    []string{"\r\n", "\r", "\n"},
-		Tabstop:    8,
-	}
+	g.Mode = TextMode()
 	stub(g)
 	g.nb = nil
 
@@ -340,7 +419,7 @@ func (g *Grammar) Define(name string, stub func()) {
 
 func (g *Grammar) Print(args ...any) {
 	p := g.markPosition(printAction)
-	if g.shouldExit(p) {
+	if g.shouldExit(p, printAction) {
 		return
 	}
 	a := &parseAction{kind: printAction, message: args, pos: p}
@@ -348,7 +427,7 @@ func (g *Grammar) Print(args ...any) {
 }
 func (g *Grammar) Trace(stub func()) {
 	p := g.markPosition(traceAction)
-	if g.shouldExit(p) {
+	if g.shouldExit(p, traceAction) {
 		return
 	}
 	r := g.buildStub(traceAction, stub)
@@ -362,7 +441,7 @@ func (g *Grammar) Trace(stub func()) {
 
 func (g *Grammar) Whitespace() {
 	p := g.markPosition(whitespaceAction)
-	if g.shouldExit(p) {
+	if g.shouldExit(p, whitespaceAction) {
 		return
 	}
 	a := &parseAction{kind: whitespaceAction, pos: p}
@@ -371,7 +450,7 @@ func (g *Grammar) Whitespace() {
 
 func (g *Grammar) Newline() {
 	p := g.markPosition(newlineAction)
-	if g.shouldExit(p) {
+	if g.shouldExit(p, newlineAction) {
 		return
 	}
 	a := &parseAction{kind: newlineAction, pos: p}
@@ -380,7 +459,7 @@ func (g *Grammar) Newline() {
 
 func (g *Grammar) StartOfFile() {
 	p := g.markPosition(startOfFileAction)
-	if g.shouldExit(p) {
+	if g.shouldExit(p, startOfFileAction) {
 		return
 	}
 
@@ -390,7 +469,7 @@ func (g *Grammar) StartOfFile() {
 
 func (g *Grammar) EndOfFile() {
 	p := g.markPosition(endOfFileAction)
-	if g.shouldExit(p) {
+	if g.shouldExit(p, endOfFileAction) {
 		return
 	}
 
@@ -400,7 +479,7 @@ func (g *Grammar) EndOfFile() {
 
 func (g *Grammar) StartOfLine() {
 	p := g.markPosition(startOfLineAction)
-	if g.shouldExit(p) {
+	if g.shouldExit(p, startOfLineAction) {
 		return
 	}
 
@@ -410,7 +489,7 @@ func (g *Grammar) StartOfLine() {
 
 func (g *Grammar) EndOfLine() {
 	p := g.markPosition(endOfLineAction)
-	if g.shouldExit(p) {
+	if g.shouldExit(p, endOfLineAction) {
 		return
 	}
 
@@ -420,7 +499,7 @@ func (g *Grammar) EndOfLine() {
 
 func (g *Grammar) Call(name string) {
 	p := g.markPosition(callAction)
-	if g.shouldExit(p) {
+	if g.shouldExit(p, callAction) {
 		return
 	}
 	g.callPos[name] = append(g.callPos[name], p)
@@ -430,12 +509,19 @@ func (g *Grammar) Call(name string) {
 
 func (g *Grammar) Literal(s ...string) {
 	p := g.markPosition(literalAction)
-	if g.shouldExit(p) {
+	if g.shouldExit(p, literalAction) {
 		return
 	}
 	if len(s) == 0 {
 		g.Error(p, "missing operand")
 		return
+	}
+
+	for _, v := range s {
+		if !g.Mode.acceptLiteral(v) {
+			g.Errorf(p, "can't use Literal(%q) in %v", v, g.Mode.name())
+			return
+		}
 	}
 
 	a := &parseAction{kind: literalAction, literals: s, pos: p}
@@ -444,7 +530,7 @@ func (g *Grammar) Literal(s ...string) {
 
 func (g *Grammar) Rune() {
 	p := g.markPosition(runeAction)
-	if g.shouldExit(p) {
+	if g.shouldExit(p, runeAction) {
 		return
 	}
 
@@ -454,7 +540,7 @@ func (g *Grammar) Rune() {
 
 func (g *Grammar) Byte() {
 	p := g.markPosition(byteAction)
-	if g.shouldExit(p) {
+	if g.shouldExit(p, byteAction) {
 		return
 	}
 
@@ -468,7 +554,7 @@ func (g *Grammar) Range(s ...string) RangeOptions {
 		g: g,
 		p: p,
 	}
-	if g.shouldExit(p) {
+	if g.shouldExit(p, rangeAction) {
 		return ro
 	}
 	if len(s) == 0 {
@@ -492,12 +578,12 @@ func (g *Grammar) Range(s ...string) RangeOptions {
 }
 
 func (g *Grammar) ByteRange(s ...string) RangeOptions {
-	p := g.markPosition(rangeAction)
+	p := g.markPosition(byteRangeAction)
 	ro := RangeOptions{
 		g: g,
 		p: p,
 	}
-	if g.shouldExit(p) {
+	if g.shouldExit(p, byteRangeAction) {
 		return ro
 	}
 	if len(s) == 0 {
@@ -531,12 +617,12 @@ func (ro RangeOptions) Invert() RangeOptions {
 }
 
 func (g *Grammar) invertRange(rangePos int, a *parseAction) RangeOptions {
-	p := g.markPosition(sequenceAction)
+	p := g.markPosition(rangeAction)
 	ro := RangeOptions{
 		g: g,
 		p: p,
 	}
-	if g.shouldExit(p) || a == nil {
+	if g.shouldExit(p, rangeAction) || a == nil {
 		return ro
 	}
 
@@ -551,7 +637,7 @@ func (g *Grammar) invertRange(rangePos int, a *parseAction) RangeOptions {
 
 func (g *Grammar) Sequence(stub func()) {
 	p := g.markPosition(sequenceAction)
-	if g.shouldExit(p) {
+	if g.shouldExit(p, sequenceAction) {
 		return
 	}
 
@@ -567,7 +653,7 @@ func (g *Grammar) Sequence(stub func()) {
 
 func (g *Grammar) Capture(name string, stub func()) {
 	p := g.markPosition(sequenceAction)
-	if g.shouldExit(p) {
+	if g.shouldExit(p, captureAction) {
 		return
 	}
 
@@ -583,7 +669,7 @@ func (g *Grammar) Capture(name string, stub func()) {
 
 func (g *Grammar) Choice(options ...func()) {
 	p := g.markPosition(choiceAction)
-	if g.shouldExit(p) {
+	if g.shouldExit(p, choiceAction) {
 		return
 	}
 
@@ -603,7 +689,7 @@ func (g *Grammar) Choice(options ...func()) {
 
 func (g *Grammar) Optional(stub func()) {
 	p := g.markPosition(optionalAction)
-	if g.shouldExit(p) {
+	if g.shouldExit(p, optionalAction) {
 		return
 	}
 	r := g.buildStub(optionalAction, stub)
@@ -617,7 +703,7 @@ func (g *Grammar) Optional(stub func()) {
 
 func (g *Grammar) Lookahead(stub func()) {
 	p := g.markPosition(lookaheadAction)
-	if g.shouldExit(p) {
+	if g.shouldExit(p, lookaheadAction) {
 		return
 	}
 	r := g.buildStub(lookaheadAction, stub)
@@ -631,7 +717,7 @@ func (g *Grammar) Lookahead(stub func()) {
 
 func (g *Grammar) Reject(stub func()) {
 	p := g.markPosition(rejectAction)
-	if g.shouldExit(p) {
+	if g.shouldExit(p, rejectAction) {
 		return
 	}
 	r := g.buildStub(rejectAction, stub)
@@ -645,7 +731,7 @@ func (g *Grammar) Reject(stub func()) {
 
 func (g *Grammar) Repeat(min_t int, max_t int, stub func()) {
 	p := g.markPosition(repeatAction)
-	if g.shouldExit(p) {
+	if g.shouldExit(p, repeatAction) {
 		return
 	}
 
@@ -661,6 +747,10 @@ func (g *Grammar) Repeat(min_t int, max_t int, stub func()) {
 
 func (g *Grammar) Check() error {
 	if g.err != nil {
+		return g.err
+	}
+	if !g.Mode.check() {
+		g.Error(g.pos, "misconfigured mode")
 		return g.err
 	}
 	for name, pos := range g.callPos {
@@ -824,19 +914,19 @@ func (a *parseAction) buildFunc(g *Grammar) parseFunc {
 	// case dedentAction
 
 	case whitespaceAction:
-		mode := g.Mode.(*Text)
+		mode := g.Mode.(*textMode)
 		return func(s *parserState) bool {
 			for {
-				if !s.acceptAny(mode.Whitespace) {
+				if !s.acceptAny(mode.whitespace) {
 					break
 				}
 			}
 			return true
 		}
 	case endOfLineAction, newlineAction:
-		mode := g.Mode.(*Text)
+		mode := g.Mode.(*textMode)
 		return func(s *parserState) bool {
-			return s.acceptAny(mode.Newline)
+			return s.acceptAny(mode.newline)
 		}
 
 	case startOfLineAction:
