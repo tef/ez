@@ -73,6 +73,27 @@ func BuildParser(stub func(*Grammar)) *Parser {
 //  	Grammar Builder
 //
 
+type ParserMode interface {
+	lineParser() *lineParser
+}
+
+type Byte struct {
+}
+
+func (*Byte) lineParser() *lineParser {
+	return nil
+}
+
+type Text struct {
+	Whitespace []string
+	Newline    []string
+	Tabstop    int
+}
+
+func (t *Text) lineParser() *lineParser {
+	return &lineParser{tabstop: t.Tabstop}
+}
+
 type filePosition struct {
 	file   string
 	line   int
@@ -124,11 +145,9 @@ func (b *nodeBuilder) inRule() bool {
 type BuilderFunc func(string, []any) (any, error)
 
 type Grammar struct {
-	Start       string
-	Whitespaces []string
-	Newlines    []string
-	Tabstop     int
-	LogFunc     func(string, ...any)
+	Start   string
+	Mode    ParserMode
+	LogFunc func(string, ...any)
 
 	rules   []*parseAction
 	names   []string
@@ -272,9 +291,11 @@ func (g *Grammar) buildGrammar(stub func(*Grammar)) error {
 	g.builders = make(map[string]BuilderFunc, 0)
 	g.builderPos = make(map[string]int, 0)
 	g.nb = &nodeBuilder{kind: grammarAction}
-	g.Tabstop = 8
-	g.Whitespaces = []string{" ", "\t"}
-	g.Newlines = []string{"\r\n", "\r", "\n"}
+	g.Mode = &Text{
+		Whitespace: []string{" ", "\t"},
+		Newline:    []string{"\r\n", "\r", "\n"},
+		Tabstop:    8,
+	}
 	stub(g)
 	g.nb = nil
 
@@ -363,7 +384,7 @@ func (g *Grammar) StartOfFile() {
 		return
 	}
 
-	a := &parseAction{kind:startOfFileAction, pos: p}
+	a := &parseAction{kind: startOfFileAction, pos: p}
 	g.nb.append(a)
 }
 
@@ -373,7 +394,7 @@ func (g *Grammar) EndOfFile() {
 		return
 	}
 
-	a := &parseAction{kind:endOfFileAction, pos: p}
+	a := &parseAction{kind: endOfFileAction, pos: p}
 	g.nb.append(a)
 }
 
@@ -383,7 +404,7 @@ func (g *Grammar) StartOfLine() {
 		return
 	}
 
-	a := &parseAction{kind:startOfLineAction, pos: p}
+	a := &parseAction{kind: startOfLineAction, pos: p}
 	g.nb.append(a)
 }
 
@@ -393,10 +414,9 @@ func (g *Grammar) EndOfLine() {
 		return
 	}
 
-	a := &parseAction{kind:endOfLineAction, pos: p}
+	a := &parseAction{kind: endOfLineAction, pos: p}
 	g.nb.append(a)
 }
-
 
 func (g *Grammar) Call(name string) {
 	p := g.markPosition(callAction)
@@ -739,7 +759,7 @@ func (a *parseAction) buildFunc(g *Grammar) parseFunc {
 		fn := g.LogFunc
 		return func(s *parserState) bool {
 			msg := fmt.Sprint(a.message...)
-			fn("%v: Print(%q) called, at offset %v, column %v\n", prefix, msg, s.offset, s.column)
+			fn("%v: Print(%q) called, at offset %v, column %v\n", prefix, msg, s.offset, s.column())
 			return true
 		}
 	case traceAction:
@@ -804,26 +824,24 @@ func (a *parseAction) buildFunc(g *Grammar) parseFunc {
 	// case dedentAction
 
 	case whitespaceAction:
+		mode := g.Mode.(*Text)
 		return func(s *parserState) bool {
 			for {
-				if !s.acceptAny(g.Whitespaces) {
+				if !s.acceptAny(mode.Whitespace) {
 					break
 				}
 			}
 			return true
 		}
-	case newlineAction:
+	case endOfLineAction, newlineAction:
+		mode := g.Mode.(*Text)
 		return func(s *parserState) bool {
-			return s.acceptAny(g.Newlines)
+			return s.acceptAny(mode.Newline)
 		}
 
 	case startOfLineAction:
 		return func(s *parserState) bool {
-			return s.column == 0
-		}
-	case endOfLineAction:
-		return func(s *parserState) bool {
-			return s.acceptAny(g.Newlines)
+			return s.column() == 0
 		}
 	case startOfFileAction:
 		return func(s *parserState) bool {
@@ -1057,14 +1075,40 @@ func (a *parseAction) buildFunc(g *Grammar) parseFunc {
 	}
 }
 
+type lineParser struct {
+	column  int
+	tabstop int
+}
+
+func (p *lineParser) advance(buf string, oldOffset int, newOffset int) {
+	if p == nil {
+		return
+	}
+	for i := oldOffset; i < newOffset; i++ {
+		switch buf[i] {
+		case byte('\t'):
+			width := (p.tabstop - ((p.column) % p.tabstop))
+			p.column += width
+		case byte('\r'):
+			p.column = 0
+		case byte('\n'):
+			if i > 1 && buf[i-1] != byte('\r') {
+				p.column = 0
+			}
+
+		default:
+			p.column += 1
+		}
+	}
+}
+
 type parserState struct {
 	rules []parseFunc
 	buf   string
 
-	length  int
-	offset  int
-	column  int
-	tabstop int
+	length     int
+	offset     int
+	lineParser *lineParser
 
 	nodes    []Node
 	numNodes int
@@ -1082,8 +1126,18 @@ type parserState struct {
 
 }
 
+func (s *parserState) column() int {
+	if s.lineParser == nil {
+		return -1
+	}
+	return s.lineParser.column
+}
+
 func (s *parserState) copyInto(into *parserState) {
 	*into = *s
+	if s.lineParser != nil {
+		*into.lineParser = *s.lineParser
+	}
 }
 
 func (s *parserState) merge(new *parserState) {
@@ -1094,6 +1148,9 @@ func (s *parserState) trim(new *parserState) {
 }
 func (s *parserState) startCapture(st *parserState) {
 	*st = *s
+	if s.lineParser != nil {
+		*st.lineParser = *s.lineParser
+	}
 	st.children = []int{}
 }
 func (s *parserState) mergeCapture(name string, new *parserState) {
@@ -1140,22 +1197,7 @@ func (s *parserState) peekRune() (rune, int) {
 
 func (s *parserState) advance(length int) {
 	newOffset := s.offset + length
-	for i := s.offset; i < newOffset; i++ {
-		switch s.buf[i] {
-		case byte('\t'):
-			width := (s.tabstop - ((s.column) % s.tabstop))
-			s.column += width
-		case byte('\r'):
-			s.column = 0
-		case byte('\n'):
-			if i > 1 && s.buf[i-1] != byte('\r') {
-				s.column = 0
-			}
-
-		default:
-			s.column += 1
-		}
-	}
+	s.lineParser.advance(s.buf, s.offset, newOffset)
 	s.offset = newOffset
 
 }
@@ -1191,11 +1233,13 @@ type Parser struct {
 }
 
 func (p *Parser) newParserState(s string) *parserState {
+	mode := p.grammar.Mode
+
 	return &parserState{
-		rules:   p.rules,
-		buf:     s,
-		length:  len(s),
-		tabstop: p.grammar.Tabstop,
+		rules:      p.rules,
+		buf:        s,
+		length:     len(s),
+		lineParser: mode.lineParser(),
 	}
 }
 

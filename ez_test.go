@@ -309,8 +309,33 @@ func TestWhitespace(t *testing.T) {
 
 	parser = BuildParser(func(g *Grammar) {
 		g.Start = "expr"
-		g.Whitespaces = []string{" ", "\t"}
-		g.Newlines = []string{"\r\n", "\r", "\n"}
+		g.Mode = &Byte{}
+
+		g.Define("expr", func() {
+			g.Literal("example")
+		})
+
+	})
+
+	if parser.err != nil {
+		t.Errorf("error defining grammar:\n%v", parser.err)
+	} else {
+		ok = parser.testRule("expr",
+			[]string{"example"},
+			[]string{"", "example\n"},
+		)
+		if !ok {
+			t.Error("mode test case failed")
+		}
+	}
+
+	parser = BuildParser(func(g *Grammar) {
+		g.Start = "expr"
+		g.Mode = &Text{
+			Whitespace: []string{" ", "\t"},
+			Newline:    []string{"\r\n", "\r", "\n"},
+			Tabstop:    8,
+		}
 
 		g.Define("expr", func() {
 			g.StartOfLine()
