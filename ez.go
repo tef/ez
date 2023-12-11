@@ -338,14 +338,19 @@ func (g *Grammar) Literal(s ...string) {
 	a := &parseAction{kind: literalAction, literals: s, pos: p}
 	g.nb.append(a)
 }
-func (g *Grammar) Range(s ...string) {
+
+func (g *Grammar) Range(s ...string) RangeOptions {
 	p := g.markPosition(rangeAction)
+	ro := RangeOptions{
+		g: g,
+		p: p,
+	}
 	if g.shouldExit(p) {
-		return
+		return ro
 	}
 	if len(s) == 0 {
 		g.Error(p, "missing operand")
-		return
+		return ro
 	}
 
 	args := make([]string, len(s))
@@ -353,13 +358,45 @@ func (g *Grammar) Range(s ...string) {
 		r := []rune(v)
 		if len(r) != 3 || r[1] != '-' {
 			g.Error(p, "invalid range", v)
-			return
+			return ro
 		}
 		args[i] = v
 	}
 	a := &parseAction{kind: rangeAction, ranges: args, pos: p}
+	ro.a = a
 	g.nb.append(a)
+	return ro
 }
+
+type RangeOptions struct {
+	g *Grammar
+	a *parseAction
+	p int
+}
+
+func (ro RangeOptions) Invert() RangeOptions {
+	return ro.g.invertRange(ro.p, ro.a)
+}
+
+func (g *Grammar) invertRange(rangePos int, a *parseAction) RangeOptions {
+	p := g.markPosition(sequenceAction)
+	ro := RangeOptions{
+		g: g,
+		p: p,
+	}
+	if g.shouldExit(p) || a == nil {
+		return ro
+	}
+
+	if p-rangePos != 1 {
+		g.Error(p, "called in wrong position")
+		return ro
+	}
+	a.inverted = !a.inverted
+	ro.a = a
+	return ro
+}
+
 func (g *Grammar) Sequence(stub func()) {
 	p := g.markPosition(sequenceAction)
 	if g.shouldExit(p) {
@@ -646,9 +683,10 @@ type parseAction struct {
 	literals []string
 	ranges   []string
 
-	min     int
-	max     int
-	message []any
+	min      int
+	max      int
+	inverted bool
+	message  []any
 }
 
 func (a *parseAction) buildFunc(g *Grammar) parseFunc {
@@ -763,7 +801,7 @@ func (a *parseAction) buildFunc(g *Grammar) parseFunc {
 			return false
 		}
 	case rangeAction:
-		inverted := false
+		inverted := a.inverted
 		runeRanges := make([][]rune, len(a.ranges))
 		for i, v := range a.ranges {
 			n := []rune(v)

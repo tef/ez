@@ -111,6 +111,22 @@ func TestErrors(t *testing.T) {
 	} else {
 		t.Logf("test grammar raised error:\n %v", g.err)
 	}
+	// invert must be called after Range
+	_, err = BuildGrammar(func(g *Grammar) {
+		g.Start = "expr"
+
+		g.Define("expr", func() {
+			ro := g.Range("0-9")
+			g.Literal("x")
+			ro.Invert()
+		})
+	})
+
+	if err == nil {
+		t.Error("bad invert should raise error")
+	} else {
+		t.Logf("test grammar raised error:\n %v", err)
+	}
 
 }
 func TestLogger(t *testing.T) {
@@ -199,7 +215,7 @@ func TestParser(t *testing.T) {
 			g.Call("test_literal")
 			g.Call("test_optional")
 			g.Call("test_range")
-			// Call optional
+			g.Call("test_inverted")
 		})
 
 		g.Define("test_literal", func() {
@@ -217,6 +233,9 @@ func TestParser(t *testing.T) {
 		})
 		g.Define("test_range", func() {
 			g.Range("0-9")
+		})
+		g.Define("test_inverted", func() {
+			g.Range("0-9").Invert()
 		})
 
 		// test optional
@@ -246,7 +265,20 @@ func TestParser(t *testing.T) {
 		if !ok {
 			t.Error("range test case failed")
 		}
+		ok = parser.testRule("test_inverted",
+			[]string{"a", "b", "c", "A", "B", "C"},
+			[]string{"", "0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10"},
+		)
+		if !ok {
+			t.Error("range test case failed")
+		}
 	}
+}
+
+func TestGrammar(t *testing.T) {
+	var parser *Parser
+	var err error
+	var ok bool
 
 	parser, err = BuildParser(func(g *Grammar) {
 		g.Start = "expr"
