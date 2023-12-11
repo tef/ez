@@ -537,7 +537,8 @@ func (g *Grammar) Check() error {
 
 func (g *Grammar) Parser() (*Parser, error) {
 	if g.Check() != nil {
-		return nil, g.err
+		p := &Parser{err: g.err}
+		return p, g.err
 	}
 
 	rules := make([]parseFunc, len(g.rules))
@@ -554,18 +555,6 @@ func (g *Grammar) Parser() (*Parser, error) {
 		grammar: g,
 	}
 	return p, nil
-}
-
-type Node struct {
-	name     string
-	start    int
-	end      int
-	children []int
-}
-
-type NodeTree struct {
-	nodes []Node
-	root  int
 }
 
 type parseFunc func(*parserState) bool
@@ -958,14 +947,62 @@ func (a *parseAction) buildFunc(g *Grammar) parseFunc {
 	}
 }
 
+type Node struct {
+	name     string
+	start    int
+	end      int
+	children []int
+}
+
+type NodeTree struct {
+	buf   string
+	nodes []Node
+	root  int
+	err   error
+}
+
+func (t *NodeTree) Walk(f func(*Node)) {
+	var walk func(int)
+
+	walk = func(i int) {
+		n := &t.nodes[i]
+		for _, c := range n.children {
+			walk(c)
+		}
+		f(n)
+	}
+	walk(t.root)
+}
+
+type Builder func(*Node, []any) any
+
+func (t *NodeTree) Build(builders map[string]Builder) any {
+	var build func(int) any
+
+	build = func(i int) any {
+		n := &t.nodes[i]
+		args := make([]any, len(n.children))
+		for idx, c := range n.children {
+			args[idx] = build(c)
+		}
+		return builders[n.name](n, args)
+	}
+	return build(t.root)
+}
+
+var ParseError = errors.New("failed to parse")
+
 type Parser struct {
 	rules   []parseFunc
 	start   int
 	grammar *Grammar
-	Err     error
+	err     error
 }
 
-func (p *Parser) testString(s string) *NodeTree {
+func (p *Parser) Parse(s string) (*NodeTree, error) {
+	if p.err != nil {
+		return &NodeTree{err: p.err}, p.err
+	}
 	parserState := &parserState{
 		rules:  p.rules,
 		buf:    s,
@@ -975,9 +1012,9 @@ func (p *Parser) testString(s string) *NodeTree {
 	if start(parserState) && parserState.atEnd() {
 		name := p.grammar.Start
 		n := parserState.captureNode(name)
-		return &NodeTree{root: n, nodes: parserState.nodes}
+		return &NodeTree{root: n, buf: s, nodes: parserState.nodes}, nil
 	}
-	return nil
+	return nil, ParseError
 }
 
 func (p *Parser) testGrammar(accept []string, reject []string) bool {

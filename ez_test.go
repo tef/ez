@@ -355,30 +355,85 @@ func TestCapture(t *testing.T) {
 			t.Error("literal test case failed")
 		}
 
-		tree = parser.testString("ABC")
+		tree, err = parser.Parse("ABC")
 
-		if tree == nil {
+		if err != nil {
 			t.Error("literal test case failed")
 		} else {
 			t.Log("ABC parsed")
-			for i, n := range tree.nodes {
-				t.Logf("node %v: %v", i, n)
-			}
+			tree.Walk(func(n *Node) {
+				t.Logf("node %q %q %v", n.name, tree.buf[n.start:n.end], n.children)
+			})
 			if len(tree.nodes) != 3 {
 				t.Error("wrong nodes count")
 			}
 		}
-		tree = parser.testString("ABCD")
 
-		if tree == nil {
+		tree, err = parser.Parse("ABCD")
+
+		if err != nil {
 			t.Error("literal test case failed")
 		} else {
 			t.Log("ABCD parsed")
-			for i, n := range tree.nodes {
-				t.Logf("node %v: %v", i, n)
-			}
+			tree.Walk(func(n *Node) {
+				t.Logf("node %q %q", n.name, tree.buf[n.start:n.end])
+			})
 			if len(tree.nodes) != 2 {
 				t.Error("wrong node count")
+			}
+		}
+	}
+	parser, err = BuildParser(func(g *Grammar) {
+		g.Start = "start"
+		g.Define("start", func() {
+			g.Capture("main", func() {
+				g.Literal("A")
+			})
+		})
+	})
+
+	if err != nil {
+		t.Errorf("error defining grammar:\n%v", err)
+	} else {
+		ok = parser.testGrammar(
+			[]string{"A"},
+			[]string{""},
+		)
+		if !ok {
+			t.Error("literal test case failed")
+		}
+
+		tree, err = parser.Parse("A")
+
+		if err != nil {
+			t.Error("literal test case failed")
+		} else {
+			t.Log("A parsed")
+			tree.Walk(func(n *Node) {
+				t.Logf("node %q %q %v", n.name, tree.buf[n.start:n.end], n.children)
+			})
+			if len(tree.nodes) != 1 {
+				t.Error("wrong nodes count")
+			}
+		}
+
+		builders := map[string]Builder{
+			"main": func(n *Node, args []any) any {
+				s := tree.buf[n.start:n.end]
+				return &s
+			},
+		}
+
+		out := tree.Build(builders)
+
+		if out == nil {
+			t.Error("build failed")
+		} else {
+			s, ok := out.(*string)
+			if ok && *s == "A" {
+				t.Log("build success")
+			} else {
+				t.Errorf("build failed, got %v:", out)
 			}
 		}
 	}
