@@ -1003,7 +1003,7 @@ type Parser struct {
 	err     error
 }
 
-func (p *Parser) Parse(s string) (*NodeTree, error) {
+func (p *Parser) ParseTree(s string) (*NodeTree, error) {
 	if p.err != nil {
 		return &NodeTree{err: p.err}, p.err
 	}

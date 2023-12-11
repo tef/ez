@@ -353,7 +353,7 @@ func TestCapture(t *testing.T) {
 			t.Error("literal test case failed")
 		}
 
-		tree, parser.err = parser.Parse("ABC")
+		tree, parser.err = parser.ParseTree("ABC")
 
 		if parser.err != nil {
 			t.Error("literal test case failed")
@@ -367,7 +367,7 @@ func TestCapture(t *testing.T) {
 			}
 		}
 
-		tree, parser.err = parser.Parse("ABCD")
+		tree, parser.err = parser.ParseTree("ABCD")
 
 		if parser.err != nil {
 			t.Error("literal test case failed")
@@ -401,7 +401,7 @@ func TestCapture(t *testing.T) {
 			t.Error("literal test case failed")
 		}
 
-		tree, parser.err = parser.Parse("A")
+		tree, parser.err = parser.ParseTree("A")
 
 		if parser.err != nil {
 			t.Error("literal test case failed")
