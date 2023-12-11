@@ -318,7 +318,7 @@ func TestGrammar(t *testing.T) {
 func TestCapture(t *testing.T) {
 	var parser *Parser
 	var ok bool
-	var tree *NodeTree
+	var tree *ParseTree
 
 	parser = BuildParser(func(g *Grammar) {
 		g.Start = "start"

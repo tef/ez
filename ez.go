@@ -958,14 +958,14 @@ type Node struct {
 	children []int
 }
 
-type NodeTree struct {
+type ParseTree struct {
 	buf   string
 	nodes []Node
 	root  int
 	err   error
 }
 
-func (t *NodeTree) Walk(f func(*Node)) {
+func (t *ParseTree) Walk(f func(*Node)) {
 	var walk func(int)
 
 	walk = func(i int) {
@@ -980,7 +980,7 @@ func (t *NodeTree) Walk(f func(*Node)) {
 
 type BuilderFunc func(*Node, []any) (any, error)
 
-func (t *NodeTree) Build(builders map[string]BuilderFunc) (any, error) {
+func (t *ParseTree) Build(builders map[string]BuilderFunc) (any, error) {
 	var build func(int) (any, error)
 
 	build = func(i int) (any, error) {
@@ -1007,9 +1007,9 @@ type Parser struct {
 	err     error
 }
 
-func (p *Parser) ParseTree(s string) (*NodeTree, error) {
+func (p *Parser) ParseTree(s string) (*ParseTree, error) {
 	if p.err != nil {
-		return &NodeTree{err: p.err}, p.err
+		return &ParseTree{err: p.err}, p.err
 	}
 	parserState := &parserState{
 		rules:  p.rules,
@@ -1020,7 +1020,7 @@ func (p *Parser) ParseTree(s string) (*NodeTree, error) {
 	if start(parserState) && parserState.atEnd() {
 		name := p.grammar.Start
 		n := parserState.captureNode(name)
-		return &NodeTree{root: n, buf: s, nodes: parserState.nodes}, nil
+		return &ParseTree{root: n, buf: s, nodes: parserState.nodes}, nil
 	}
 	return nil, ParseError
 }
