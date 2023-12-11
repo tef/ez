@@ -583,10 +583,8 @@ type parserState struct {
 
 }
 
-func (s *parserState) clone() *parserState {
-	st := parserState{}
-	st = *s
-	return &st
+func (s *parserState) copyInto(into *parserState) {
+	*into = *s
 }
 
 func (s *parserState) merge(new *parserState) {
@@ -595,11 +593,9 @@ func (s *parserState) merge(new *parserState) {
 func (s *parserState) trim(new *parserState) {
 	s.nodes = s.nodes[:s.numNodes]
 }
-func (s *parserState) startCapture() *parserState {
-	st := parserState{}
-	st = *s
+func (s *parserState) startCapture(st *parserState) {
+	*st = *s
 	st.children = []int{}
-	return &st
 }
 func (s *parserState) mergeCapture(name string, new *parserState) {
 	node := Node{
@@ -703,10 +699,11 @@ func (a *parseAction) buildFunc(g *Grammar) parseFunc {
 			fn("%v: Trace() starting, at offset %v\n", prefix, s.offset)
 			result := true
 
-			s1 := s.clone()
+			var s1 parserState
+			s.copyInto(&s1)
 			s1.trace = true
 			for _, v := range rules {
-				if !v(s1) {
+				if !v(&s1) {
 					result = false
 					break
 				}
@@ -714,7 +711,7 @@ func (a *parseAction) buildFunc(g *Grammar) parseFunc {
 			if result {
 				s1.trace = false
 				fn("%v: Trace() ending, at offset %v\n", prefix, s1.offset)
-				s.merge(s1)
+				s.merge(&s1)
 			} else {
 				fn("%v: Trace() failing, at offset %v\n", prefix, s.offset)
 			}
@@ -827,13 +824,14 @@ func (a *parseAction) buildFunc(g *Grammar) parseFunc {
 			rules[i] = r.buildFunc(g)
 		}
 		return func(s *parserState) bool {
-			s1 := s.clone()
+			var s1 parserState
+			s.copyInto(&s1)
 			for _, r := range rules {
-				if !r(s1) {
+				if !r(&s1) {
 					return true
 				}
 			}
-			s.merge(s1)
+			s.merge(&s1)
 			return true
 		}
 	case lookaheadAction:
@@ -842,9 +840,10 @@ func (a *parseAction) buildFunc(g *Grammar) parseFunc {
 			rules[i] = r.buildFunc(g)
 		}
 		return func(s *parserState) bool {
-			s1 := s.clone()
+			var s1 parserState
+			s.copyInto(&s1)
 			for _, r := range rules {
-				if !r(s1) {
+				if !r(&s1) {
 					return false
 				}
 			}
@@ -856,9 +855,10 @@ func (a *parseAction) buildFunc(g *Grammar) parseFunc {
 			rules[i] = r.buildFunc(g)
 		}
 		return func(s *parserState) bool {
-			s1 := s.clone()
+			var s1 parserState
+			s.copyInto(&s1)
 			for _, r := range rules {
-				if !r(s1) {
+				if !r(&s1) {
 					return true
 				}
 			}
@@ -875,16 +875,17 @@ func (a *parseAction) buildFunc(g *Grammar) parseFunc {
 
 		return func(s *parserState) bool {
 			c := 0
-			s1 := s.clone()
+			var s1 parserState
+			s.copyInto(&s1)
 			for {
 				for _, r := range rules {
-					if !r(s1) {
+					if !r(&s1) {
 						return c >= min_n
 					}
 				}
 				c += 1
 				if c >= min_n {
-					s.merge(s1)
+					s.merge(&s1)
 				}
 
 				if max_n != 0 && c >= max_n {
@@ -901,12 +902,13 @@ func (a *parseAction) buildFunc(g *Grammar) parseFunc {
 		}
 		return func(s *parserState) bool {
 			for _, r := range rules {
-				s1 := s.clone()
-				if r(s1) {
-					s.merge(s1)
+				var s1 parserState
+				s.copyInto(&s1)
+				if r(&s1) {
+					s.merge(&s1)
 					return true
 				}
-				s.trim(s1)
+				s.trim(&s1)
 			}
 			return false
 		}
@@ -916,13 +918,14 @@ func (a *parseAction) buildFunc(g *Grammar) parseFunc {
 			rules[i] = r.buildFunc(g)
 		}
 		return func(s *parserState) bool {
-			s1 := s.clone()
+			var s1 parserState
+			s.copyInto(&s1)
 			for _, r := range rules {
-				if !r(s1) {
+				if !r(&s1) {
 					return false
 				}
 			}
-			s.merge(s1)
+			s.merge(&s1)
 			return true
 		}
 	case captureAction:
@@ -931,13 +934,14 @@ func (a *parseAction) buildFunc(g *Grammar) parseFunc {
 			rules[i] = r.buildFunc(g)
 		}
 		return func(s *parserState) bool {
-			s1 := s.startCapture()
+			var s1 parserState
+			s.startCapture(&s1)
 			for _, r := range rules {
-				if !r(s1) {
+				if !r(&s1) {
 					return false
 				}
 			}
-			s.mergeCapture(a.name, s1)
+			s.mergeCapture(a.name, &s1)
 			return true
 		}
 	default:
