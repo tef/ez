@@ -55,15 +55,8 @@ type grammarError struct {
 
 func (e *grammarError) Error() string {
 	p := e.g.posInfo[e.pos]
-	if p.rule != nil {
-		name := e.g.names[*p.rule]
-		rulePos := e.g.posInfo[e.g.rulePos[*p.rule]]
-		return fmt.Sprintf("%v:%v:%v: %v (inside %q at %v:%v)", p.file, p.line, p.action, e.message, name, rulePos.file, rulePos.line)
-
-	} else {
-		return fmt.Sprintf("%v:%v:%v: %v", p.file, p.line, p.action, e.message)
-
-	}
+	prefix := e.g.formatPosition(&p)
+	return fmt.Sprintf("%v: error in %v(): %v", prefix, p.action, e.message)
 }
 
 type nodeBuilder struct {
@@ -243,6 +236,15 @@ func (g *Grammar) buildGrammar(stub func(*Grammar)) error {
 	g.nb = nil
 
 	return g.Check()
+}
+
+func (g *Grammar) formatPosition(p *filePosition) string {
+	if p.rule != nil {
+		return fmt.Sprintf("%v:%v:%v", p.file, p.line, g.names[*p.rule])
+	} else {
+		return fmt.Sprintf("%v:%v", p.file, p.line)
+	}
+
 }
 
 func (g *Grammar) Define(name string, stub func()) {
@@ -648,18 +650,16 @@ func (a *parseAction) buildFunc(g *Grammar) parseFunc {
 	switch a.kind {
 	case printAction:
 		p := g.posInfo[a.pos]
-		r := g.names[*p.rule]
-		prefix := fmt.Sprintf("%v:%v", p.file, p.line)
+		prefix := g.formatPosition(&p)
 		fn := g.LogFunc
 		return func(s *parserState) bool {
 			msg := fmt.Sprint(a.message...)
-			fn("%v: g.Print(%q) called (inside %q at pos %v)\n", prefix, msg, r, s.offset)
+			fn("%v: Print(%q) called, at offset %v\n", prefix, msg, s.offset)
 			return true
 		}
 	case traceAction:
 		p := g.posInfo[a.pos]
-		r := g.names[*p.rule]
-		prefix := fmt.Sprintf("%v:%v", p.file, p.line)
+		prefix := g.formatPosition(&p)
 		fn := g.LogFunc
 
 		rules := make([]parseFunc, len(a.args))
@@ -668,7 +668,7 @@ func (a *parseAction) buildFunc(g *Grammar) parseFunc {
 		}
 
 		return func(s *parserState) bool {
-			fn("%v: Trace called (inside %q at pos %v)\n", prefix, r, s.offset)
+			fn("%v: Trace() starting, at offset %v\n", prefix, s.offset)
 			result := true
 
 			s1 := s.clone()
@@ -681,12 +681,36 @@ func (a *parseAction) buildFunc(g *Grammar) parseFunc {
 			}
 			if result {
 				s1.trace = false
-				fn("%v: Trace exiting (inside %q at pos %v)\n", prefix, r, s1.offset)
+				fn("%v: Trace() ending, at offset %v\n", prefix, s1.offset)
 				s.merge(s1)
 			} else {
-				fn("%v: g.Trace() failing (inside %q at pos %v)\n", prefix, r, s.offset)
+				fn("%v: Trace() failing, at offset %v\n", prefix, s.offset)
 			}
 			return result
+		}
+	case callAction:
+		p := g.posInfo[a.pos]
+		prefix := g.formatPosition(&p)
+
+		name := a.name
+		idx := g.nameIdx[name]
+		fn := g.LogFunc
+		return func(s *parserState) bool {
+			if s.trace {
+				fn("%v: Call(%q) starting, at offset %v\n", prefix, name, s.offset)
+			}
+
+			rule := s.rules[idx]
+			out := rule(s)
+
+			if s.trace {
+				if out {
+					fn("%v: Call(%q) exiting, at offset %v\n", prefix, name, s.offset)
+				} else {
+					fn("%v: Call(%q) failing, at offset %v\n", prefix, name, s.offset)
+				}
+			}
+			return out
 		}
 
 	// case partialTabAction
@@ -749,29 +773,6 @@ func (a *parseAction) buildFunc(g *Grammar) parseFunc {
 				}
 			}
 			return inverted
-		}
-	case callAction:
-		p := g.posInfo[a.pos]
-		prefix := fmt.Sprintf("%v:%v", p.file, p.line)
-		fn := g.LogFunc
-		name := a.name
-		idx := g.nameIdx[name]
-		return func(s *parserState) bool {
-			if s.trace {
-				fn("%v: %v called (at pos %v)\n", prefix, name, s.offset)
-			}
-
-			rule := s.rules[idx]
-			out := rule(s)
-
-			if s.trace {
-				if out {
-					fn("%v: %v exiting (at pos %v)\n", prefix, name, s.offset)
-				} else {
-					fn("%v: %v failing (at pos %v)\n", prefix, name, s.offset)
-				}
-			}
-			return out
 		}
 	case optionalAction:
 		rules := make([]parseFunc, len(a.args))
