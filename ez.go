@@ -10,33 +10,43 @@ import (
 )
 
 const (
-	grammarAction     = "Grammar"
-	defineAction      = "Define"
-	builderAction     = "Builder"
-	printAction       = "Print"
-	traceAction       = "Trace"
-	callAction        = "Call"
-	literalAction     = "Literal"
-	runeAction        = "Rune"
-	byteAction        = "Byte"
-	whitespaceAction  = "Whitespace"
-	newlineAction     = "Newline"
+	grammarAction = "Grammar"
+	defineAction  = "Define"
+	builderAction = "Builder"
+
+	printAction = "Print"
+	traceAction = "Trace"
+
+	callAction      = "Call"
+	choiceAction    = "Choice"
+	cutAction       = "Cut"
+	sequenceAction  = "Sequence"
+	optionalAction  = "Optional"
+	repeatAction    = "Repeat"
+	lookaheadAction = "Lookahead"
+	rejectAction    = "Reject"
+	captureAction   = "Capture"
+
+	startOfFileAction = "StartOfFie"
+	endOfFileAction   = "EndOfFile"
+
+	runeAction       = "Rune"
+	literalAction    = "Literal"
+	rangeAction      = "Range"
+	whitespaceAction = "Whitespace"
+	newlineAction    = "Newline"
+
 	partialTabAction  = "PartialTab"
 	startOfLineAction = "StartOfLine"
 	endOfLineAction   = "EndOfLine"
-	startOfFileAction = "StartOfFie"
-	endOfFileAction   = "EndOfFile"
-	choiceAction      = "Choice"
-	sequenceAction    = "Sequence"
-	optionalAction    = "Optional"
-	repeatAction      = "Repeat"
-	lookaheadAction   = "Lookahead"
-	rejectAction      = "Reject"
-	captureAction     = "Capture"
-	rangeAction       = "Range"
-	byteRangeAction   = "ByteRange"
-	indentAction      = "Indent"
-	dedentAction      = "Dedent"
+
+	indentAction = "Indent"
+	dedentAction = "Dedent"
+
+	byteAction       = "Byte"
+	byteRangeAction  = "ByteRange"
+	byteListAction   = "Bytes"
+	byteStringAction = "ByteString"
 )
 
 var ParseError = errors.New("failed to parse")
@@ -51,17 +61,43 @@ func TextMode() ParserMode {
 		whitespace: []string{" ", "\t"},
 		newline:    []string{"\r\n", "\r", "\n"},
 		Tabstop:    8,
+		actionsDisabled: []string{
+			byteAction,
+			byteRangeAction,
+			byteListAction,
+			byteStringAction,
+		},
 	}
 }
 func StringMode() ParserMode {
 	return &stringMode{
 		whitespace: []string{" ", "\t", "\r\n", "\r", "\n"},
 		newline:    []string{"\r\n", "\r", "\n"},
+		actionsDisabled: []string{
+			partialTabAction,
+			startOfLineAction,
+			endOfLineAction,
+			indentAction,
+			dedentAction,
+		},
 	}
 }
 
 func BinaryMode() ParserMode {
-	return &binaryMode{}
+	return &binaryMode{
+		actionsDisabled: []string{
+			runeAction,
+			literalAction,
+			whitespaceAction,
+			newlineAction,
+			partialTabAction,
+			startOfLineAction,
+			endOfLineAction,
+			rangeAction,
+			indentAction,
+			dedentAction,
+		},
+	}
 }
 
 func BuildGrammar(stub func(*Grammar)) *Grammar {
@@ -107,35 +143,24 @@ type ParserMode interface {
 	lineParser() *lineParser
 	actionAllowed(string) bool
 	check() bool
-	acceptLiteral(string) bool
 	whitespaces() []string
 	newlines() []string
 }
 
-type binaryMode struct{}
-
-var byteDisabled = []string{
-	runeAction,
-	whitespaceAction,
-	newlineAction,
-	partialTabAction,
-	startOfLineAction,
-	endOfLineAction,
-	rangeAction,
-	indentAction,
-	dedentAction,
+type binaryMode struct {
+	actionsDisabled []string
 }
 
-func (*binaryMode) name() string {
+func (m *binaryMode) name() string {
 	return "binary mode"
 }
 
-func (*binaryMode) lineParser() *lineParser {
+func (m *binaryMode) lineParser() *lineParser {
 	return nil
 }
 
-func (*binaryMode) actionAllowed(s string) bool {
-	for _, v := range byteDisabled {
+func (m *binaryMode) actionAllowed(s string) bool {
+	for _, v := range m.actionsDisabled {
 		if v == s {
 			return false
 		}
@@ -143,106 +168,88 @@ func (*binaryMode) actionAllowed(s string) bool {
 	return true
 }
 
-func (*binaryMode) check() bool {
-	return true
-}
-func (*binaryMode) acceptLiteral(s string) bool {
+func (m *binaryMode) check() bool {
 	return true
 }
 
-func (*binaryMode) newlines() []string {
+func (m *binaryMode) newlines() []string {
 	return []string{}
 }
 
-func (*binaryMode) whitespaces() []string {
+func (m *binaryMode) whitespaces() []string {
 	return []string{}
-}
-
-var textDisabled = []string{}
-
-type textMode struct {
-	whitespace []string
-	// Tab
-	newline []string
-	Tabstop int
-}
-
-func (t *textMode) lineParser() *lineParser {
-	return &lineParser{tabstop: t.Tabstop}
-}
-
-func (*textMode) name() string {
-	return "text mode"
-}
-
-func (*textMode) actionAllowed(s string) bool {
-	for _, v := range textDisabled {
-		if v == s {
-			return false
-		}
-	}
-	return true
-}
-func (*textMode) check() bool {
-	return true
-}
-
-func (*textMode) acceptLiteral(s string) bool {
-	return true
-}
-func (t *textMode) newlines() []string {
-	return t.newline
-}
-
-func (t *textMode) whitespaces() []string {
-	return t.whitespace
-}
-
-var stringDisabled = []string{
-	partialTabAction,
-	startOfLineAction,
-	endOfLineAction,
-	indentAction,
-	dedentAction,
 }
 
 type stringMode struct {
 	whitespace []string
 	// Tab
-	newline []string
-	Tabstop int
+	newline         []string
+	Tabstop         int
+	actionsDisabled []string
 }
 
-func (t *stringMode) lineParser() *lineParser {
+func (m *stringMode) lineParser() *lineParser {
 	return nil
 }
 
-func (*stringMode) name() string {
+func (m *stringMode) name() string {
 	return "string mode"
 }
 
-func (*stringMode) actionAllowed(s string) bool {
-	for _, v := range stringDisabled {
+func (m *stringMode) actionAllowed(s string) bool {
+	for _, v := range m.actionsDisabled {
 		if v == s {
 			return false
 		}
 	}
 	return true
 }
-func (*stringMode) check() bool {
+
+func (m *stringMode) check() bool {
 	return true
 }
 
-func (*stringMode) acceptLiteral(s string) bool {
+func (m *stringMode) newlines() []string {
+	return m.newline
+}
+
+func (m *stringMode) whitespaces() []string {
+	return m.whitespace
+}
+
+type textMode struct {
+	whitespace      []string
+	newline         []string
+	Tabstop         int
+	actionsDisabled []string
+}
+
+func (m *textMode) lineParser() *lineParser {
+	return &lineParser{tabstop: m.Tabstop}
+}
+
+func (m *textMode) name() string {
+	return "text mode"
+}
+
+func (m *textMode) actionAllowed(s string) bool {
+	for _, v := range m.actionsDisabled {
+		if v == s {
+			return false
+		}
+	}
+	return true
+}
+func (m *textMode) check() bool {
 	return true
 }
 
-func (s *stringMode) newlines() []string {
-	return s.newline
+func (m *textMode) newlines() []string {
+	return m.newline
 }
 
-func (s *stringMode) whitespaces() []string {
-	return s.whitespace
+func (m *textMode) whitespaces() []string {
+	return m.whitespace
 }
 
 type filePosition struct {
@@ -581,13 +588,13 @@ func (g *Grammar) EndOfLine() {
 	g.nb.append(a)
 }
 
-func (g *Grammar) Call(name string) {
-	p := g.markPosition(callAction)
-	if g.shouldExit(p, callAction) {
+func (g *Grammar) Rune() {
+	p := g.markPosition(runeAction)
+	if g.shouldExit(p, runeAction) {
 		return
 	}
-	g.callPos[name] = append(g.callPos[name], p)
-	a := &parseAction{kind: callAction, name: name, pos: p}
+
+	a := &parseAction{kind: runeAction, pos: p}
 	g.nb.append(a)
 }
 
@@ -601,34 +608,7 @@ func (g *Grammar) Literal(s ...string) {
 		return
 	}
 
-	for _, v := range s {
-		if !g.Mode.acceptLiteral(v) {
-			g.Errorf(p, "can't use Literal(%q) in %v", v, g.Mode.name())
-			return
-		}
-	}
-
 	a := &parseAction{kind: literalAction, literals: s, pos: p}
-	g.nb.append(a)
-}
-
-func (g *Grammar) Rune() {
-	p := g.markPosition(runeAction)
-	if g.shouldExit(p, runeAction) {
-		return
-	}
-
-	a := &parseAction{kind: runeAction, pos: p}
-	g.nb.append(a)
-}
-
-func (g *Grammar) Byte() {
-	p := g.markPosition(byteAction)
-	if g.shouldExit(p, byteAction) {
-		return
-	}
-
-	a := &parseAction{kind: byteAction, pos: p}
 	g.nb.append(a)
 }
 
@@ -659,6 +639,49 @@ func (g *Grammar) Range(s ...string) RangeOptions {
 	ro.a = a
 	g.nb.append(a)
 	return ro
+}
+
+func (g *Grammar) Byte() {
+	p := g.markPosition(byteAction)
+	if g.shouldExit(p, byteAction) {
+		return
+	}
+
+	a := &parseAction{kind: byteAction, pos: p}
+	g.nb.append(a)
+}
+
+func (g *Grammar) ByteString(s ...string) {
+	p := g.markPosition(byteStringAction)
+	if g.shouldExit(p, byteStringAction) {
+		return
+	}
+	if len(s) == 0 {
+		g.Error(p, "missing operand")
+		return
+	}
+
+	b := make([][]byte, len(s))
+	for i, v := range s {
+		b[i] = []byte(v)
+	}
+
+	a := &parseAction{kind: byteStringAction, bytes: b, pos: p}
+	g.nb.append(a)
+}
+
+func (g *Grammar) Bytes(s ...[]byte) {
+	p := g.markPosition(byteListAction)
+	if g.shouldExit(p, byteListAction) {
+		return
+	}
+	if len(s) == 0 {
+		g.Error(p, "missing operand")
+		return
+	}
+
+	a := &parseAction{kind: byteListAction, bytes: s, pos: p}
+	g.nb.append(a)
 }
 
 func (g *Grammar) ByteRange(s ...string) RangeOptions {
@@ -706,7 +729,7 @@ func (g *Grammar) invertRange(rangePos int, a *parseAction) RangeOptions {
 		g: g,
 		p: p,
 	}
-	if g.shouldExit(p, rangeAction) || a == nil {
+	if g.shouldExit(p, a.kind) || a == nil {
 		return ro
 	}
 
@@ -717,6 +740,16 @@ func (g *Grammar) invertRange(rangePos int, a *parseAction) RangeOptions {
 	a.inverted = !a.inverted
 	ro.a = a
 	return ro
+}
+
+func (g *Grammar) Call(name string) {
+	p := g.markPosition(callAction)
+	if g.shouldExit(p, callAction) {
+		return
+	}
+	g.callPos[name] = append(g.callPos[name], p)
+	a := &parseAction{kind: callAction, name: name, pos: p}
+	g.nb.append(a)
 }
 
 func (g *Grammar) Sequence(stub func()) {
@@ -757,6 +790,20 @@ func (g *Grammar) Capture(name string, stub func()) {
 	g.nb.append(a)
 }
 
+func (g *Grammar) Cut() {
+	p := g.markPosition(cutAction)
+	if g.shouldExit(p, cutAction) {
+		return
+	}
+	if g.nb.kind != choiceAction {
+		g.Error(p, "cut must be called directly inside choice, sorry.")
+		return
+	}
+
+	a := &parseAction{kind: cutAction, pos: p}
+	g.nb.append(a)
+
+}
 func (g *Grammar) Choice(options ...func()) {
 	p := g.markPosition(choiceAction)
 	if g.shouldExit(p, choiceAction) {
@@ -949,6 +996,7 @@ type parseAction struct {
 	args     []*parseAction // choice, seq, cap
 	literals []string
 	ranges   []string
+	bytes    [][]byte
 
 	min      int
 	max      int
@@ -1057,15 +1105,6 @@ func (a *parseAction) buildFunc(g *Grammar) parseFunc {
 			return s.offset == s.length
 		}
 
-	case literalAction:
-		return func(s *parserState) bool {
-			for _, v := range a.literals {
-				if s.accept(v) {
-					return true
-				}
-			}
-			return false
-		}
 	case runeAction:
 		return func(s *parserState) bool {
 			if s.atEnd() {
@@ -1082,6 +1121,24 @@ func (a *parseAction) buildFunc(g *Grammar) parseFunc {
 			}
 			s.advance(1)
 			return true
+		}
+	case literalAction:
+		return func(s *parserState) bool {
+			for _, v := range a.literals {
+				if s.acceptString(v) {
+					return true
+				}
+			}
+			return false
+		}
+	case byteListAction, byteStringAction:
+		return func(s *parserState) bool {
+			for _, v := range a.bytes {
+				if s.acceptBytes(v) {
+					return true
+				}
+			}
+			return false
 		}
 	case rangeAction:
 		inverted := a.inverted
@@ -1407,7 +1464,7 @@ func (s *parserState) advance(length int) {
 
 }
 
-func (s *parserState) accept(v string) bool {
+func (s *parserState) acceptString(v string) bool {
 	length_v := len(v)
 	if length_v+s.offset > s.length {
 		return false
@@ -1419,10 +1476,22 @@ func (s *parserState) accept(v string) bool {
 	}
 	return false
 }
+func (s *parserState) acceptBytes(v []byte) bool {
+	length_v := len(v)
+	if length_v+s.offset > s.length {
+		return false
+	}
+	b := s.buf[s.offset : s.offset+length_v]
+	if b == string(v) {
+		s.advance(length_v)
+		return true
+	}
+	return false
+}
 
 func (s *parserState) acceptAny(o []string) bool {
 	for _, v := range o {
-		if s.accept(v) {
+		if s.acceptString(v) {
 			return true
 		}
 	}

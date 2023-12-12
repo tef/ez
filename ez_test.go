@@ -160,6 +160,21 @@ func TestErrors(t *testing.T) {
 		t.Logf("test grammar raised error:\n %v", g.err)
 	}
 
+	// can't call byte inside text Mode
+	g = BuildGrammar(func(g *Grammar) {
+		g.Start = "expr"
+
+		g.Define("expr", func() {
+			g.Byte()
+		})
+	})
+
+	if g.err == nil {
+		t.Error("byte should raise error")
+	} else {
+		t.Logf("test grammar raised error:\n %v", g.err)
+	}
+
 	// missing capture should raise error for builder
 	g = BuildGrammar(func(g *Grammar) {
 		g.Start = "expr"
@@ -258,22 +273,11 @@ func TestLogger(t *testing.T) {
 func TestParser(t *testing.T) {
 	var parser *Parser
 	var ok bool
-
 	parser = BuildParser(func(g *Grammar) {
+		g.Mode = TextMode()
 		g.Start = "start"
 		g.Define("start", func() {
-			g.Call("test_literal")
 			g.Call("test_optional")
-			g.Call("test_range")
-			g.Call("test_inverted_range")
-			g.Call("test_rune")
-			g.Call("test_byte")
-			g.Call("test_byterange")
-			g.Call("test_inverted_byterange")
-		})
-
-		g.Define("test_literal", func() {
-			g.Literal("example")
 		})
 		g.Define("test_optional", func() {
 			g.Optional(func() {
@@ -285,23 +289,68 @@ func TestParser(t *testing.T) {
 			})
 			g.Literal("4")
 		})
+	})
+	if parser.err != nil {
+		t.Errorf("error defining grammar:\n%v", parser.err)
+	} else {
+		ok = parser.testRule("test_optional",
+			[]string{"24", "124", "234", "1234"},
+			[]string{"", "1", "34", "23", "123"},
+		)
+		if !ok {
+			t.Error("optional test case failed")
+		}
+	}
+}
+
+func TestStringMode(t *testing.T) {
+	var parser *Parser
+	var ok bool
+	parser = BuildParser(func(g *Grammar) {
+		g.Start = "expr"
+		g.Mode = StringMode()
+		g.Define("expr", func() {
+			g.Whitespace()
+			g.Literal("example")
+			g.Whitespace()
+			g.EndOfFile()
+		})
+
+	})
+
+	if parser.err != nil {
+		t.Errorf("error defining grammar:\n%v", parser.err)
+	} else {
+		ok = parser.testRule("expr",
+			[]string{"example\n", "example \r", " example \r\n"},
+			[]string{"", "example\n2", "1\nexample"},
+		)
+		if !ok {
+			t.Error("StringMode test case failed")
+		}
+	}
+	parser = BuildParser(func(g *Grammar) {
+		g.Mode = StringMode()
+		g.Start = "start"
+		g.Define("start", func() {
+			g.Call("test_rune")
+			g.Call("test_literal")
+			g.Call("test_range")
+			g.Call("test_inverted_range")
+		})
+
+		g.Define("test_rune", func() {
+			g.Rune()
+		})
+
+		g.Define("test_literal", func() {
+			g.Literal("example")
+		})
 		g.Define("test_range", func() {
 			g.Range("0-9")
 		})
 		g.Define("test_inverted_range", func() {
 			g.Range("0-9").Invert()
-		})
-		g.Define("test_rune", func() {
-			g.Rune()
-		})
-		g.Define("test_byte", func() {
-			g.Byte()
-		})
-		g.Define("test_byterange", func() {
-			g.ByteRange("0-9")
-		})
-		g.Define("test_inverted_byterange", func() {
-			g.ByteRange("0-9").Invert()
 		})
 	})
 
@@ -314,13 +363,6 @@ func TestParser(t *testing.T) {
 		)
 		if !ok {
 			t.Error("literal test case failed")
-		}
-		ok = parser.testRule("test_optional",
-			[]string{"24", "124", "234", "1234"},
-			[]string{"", "1", "34", "23", "123"},
-		)
-		if !ok {
-			t.Error("optional test case failed")
 		}
 		ok = parser.testRule("test_range",
 			[]string{"0", "1", "2", "3", "4", "5", "6", "7", "8", "9"},
@@ -344,6 +386,42 @@ func TestParser(t *testing.T) {
 			t.Error("rune test case failed")
 		}
 
+	}
+}
+func TestBinaryMode(t *testing.T) {
+	var parser *Parser
+	var ok bool
+	parser = BuildParser(func(g *Grammar) {
+		g.Mode = BinaryMode()
+		g.Start = "start"
+
+		g.Define("start", func() {
+			g.Call("test_byte")
+			g.Call("test_byterange")
+			g.Call("test_inverted_byterange")
+			g.Call("test_bytestring")
+			g.Call("test_bytes")
+		})
+
+		g.Define("test_byte", func() {
+			g.Byte()
+		})
+		g.Define("test_byterange", func() {
+			g.ByteRange("0-9")
+		})
+		g.Define("test_inverted_byterange", func() {
+			g.ByteRange("0-9").Invert()
+		})
+		g.Define("test_bytes", func() {
+			g.Bytes([]byte("test"))
+		})
+		g.Define("test_bytestring", func() {
+			g.ByteString("test")
+		})
+	})
+	if parser.err != nil {
+		t.Errorf("error defining grammar:\n%v", parser.err)
+	} else {
 		ok = parser.testRule("test_byte",
 			[]string{"a", "A"},
 			[]string{"", "aa"},
@@ -351,34 +429,41 @@ func TestParser(t *testing.T) {
 		if !ok {
 			t.Error("byte test case failed")
 		}
-	}
-}
-
-func TestWhitespace(t *testing.T) {
-	var parser *Parser
-	var ok bool
-
-	parser = BuildParser(func(g *Grammar) {
-		g.Start = "expr"
-		g.Mode = BinaryMode()
-
-		g.Define("expr", func() {
-			g.Literal("example")
-		})
-
-	})
-
-	if parser.err != nil {
-		t.Errorf("error defining grammar:\n%v", parser.err)
-	} else {
-		ok = parser.testRule("expr",
-			[]string{"example"},
-			[]string{"", "example\n"},
+		ok = parser.testRule("test_byterange",
+			[]string{"0", "1", "2", "3", "4", "5", "6", "7", "8", "9"},
+			[]string{"", "00", "a0", "0a", "a0a"},
 		)
 		if !ok {
-			t.Error("mode test case failed")
+			t.Error("byterange test case failed")
+		}
+		ok = parser.testRule("test_inverted_byterange",
+			[]string{"a", "b", "c", "A", "B", "C"},
+			[]string{"", "0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10"},
+		)
+		if !ok {
+			t.Error("inverted byterange test case failed")
+		}
+		ok = parser.testRule("test_bytes",
+			[]string{"test"},
+			[]string{"", "aaa"},
+		)
+		if !ok {
+			t.Error("bytes test case failed")
+		}
+		ok = parser.testRule("test_bytestring",
+			[]string{"test"},
+			[]string{"", "aa"},
+		)
+		if !ok {
+			t.Error("bytestring test case failed")
 		}
 	}
+
+}
+
+func TestTextMode(t *testing.T) {
+	var parser *Parser
+	var ok bool
 
 	parser = BuildParser(func(g *Grammar) {
 		g.Start = "expr"
