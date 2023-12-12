@@ -62,6 +62,12 @@ func BuildGrammar(stub func(*Grammar)) *Grammar {
 	g := &Grammar{}
 	g.LogFunc = Printf
 	g.pos = g.markPosition(grammarAction)
+
+	if stub == nil {
+		g.Error(g.pos, "cant call BuildGrammar() with nil")
+		return g
+	}
+
 	err := g.buildGrammar(stub)
 	if err != nil {
 		return &Grammar{err: err}
@@ -73,6 +79,11 @@ func BuildParser(stub func(*Grammar)) *Parser {
 	g := &Grammar{}
 	g.LogFunc = Printf
 	g.pos = g.markPosition(grammarAction)
+	if stub == nil {
+		g.Error(g.pos, "cant call BuildParser() with nil")
+		return &Parser{err: g.err}
+	}
+
 	err := g.buildGrammar(stub)
 	if err != nil {
 		return &Parser{err: err}
@@ -128,11 +139,6 @@ func (*binaryMode) check() bool {
 	return true
 }
 func (*binaryMode) acceptLiteral(s string) bool {
-	for _, r := range s {
-		if r >= 255 {
-			return false
-		}
-	}
 	return true
 }
 
@@ -229,7 +235,8 @@ type Grammar struct {
 	nameIdx map[string]int
 
 	// list of pos for each name
-	callPos map[string][]int
+	callPos    map[string][]int
+	capturePos map[string][]int
 
 	rulePos []int // posInfo[rulePos[ruleNum]]
 	posInfo []filePosition
@@ -371,6 +378,7 @@ func (g *Grammar) buildGrammar(stub func(*Grammar)) error {
 	}
 	g.nameIdx = make(map[string]int, 0)
 	g.callPos = make(map[string][]int, 0)
+	g.capturePos = make(map[string][]int, 0)
 	g.builders = make(map[string]BuilderFunc, 0)
 	g.builderPos = make(map[string]int, 0)
 	g.nb = &nodeBuilder{kind: grammarAction}
@@ -399,6 +407,9 @@ func (g *Grammar) Define(name string, stub func()) {
 		return
 	} else if g.nb.inRule() {
 		g.Error(p, "cant call define inside define")
+		return
+	} else if stub == nil {
+		g.Error(p, "cant call Define() with nil")
 		return
 	}
 
@@ -429,7 +440,10 @@ func (g *Grammar) Trace(stub func()) {
 	p := g.markPosition(traceAction)
 	if g.shouldExit(p, traceAction) {
 		return
+	} else if stub == nil {
+		g.Error(p, "cant call Trace() with nil")
 	}
+
 	r := g.buildStub(traceAction, stub)
 	if g.err != nil {
 		return
@@ -565,7 +579,7 @@ func (g *Grammar) Range(s ...string) RangeOptions {
 	args := make([]string, len(s))
 	for i, v := range s {
 		r := []rune(v)
-		if len(r) != 3 || r[1] != '-' {
+		if len(r) != 3 || r[1] != '-' || r[0] > r[2] {
 			g.Error(p, "invalid range", v)
 			return ro
 		}
@@ -594,7 +608,7 @@ func (g *Grammar) ByteRange(s ...string) RangeOptions {
 	args := make([]string, len(s))
 	for i, v := range s {
 		r := []byte(v)
-		if len(r) != 3 || r[1] != '-' {
+		if len(r) != 3 || r[1] != '-' || r[0] > r[2] {
 			g.Error(p, "invalid range", v)
 			return ro
 		}
@@ -639,6 +653,8 @@ func (g *Grammar) Sequence(stub func()) {
 	p := g.markPosition(sequenceAction)
 	if g.shouldExit(p, sequenceAction) {
 		return
+	} else if stub == nil {
+		g.Error(p, "cant call Sequence() with nil")
 	}
 
 	r := g.buildStub(sequenceAction, stub)
@@ -655,6 +671,8 @@ func (g *Grammar) Capture(name string, stub func()) {
 	p := g.markPosition(sequenceAction)
 	if g.shouldExit(p, captureAction) {
 		return
+	} else if stub == nil {
+		g.Error(p, "cant call Capture() with nil")
 	}
 
 	r := g.buildStub(sequenceAction, stub)
@@ -662,6 +680,8 @@ func (g *Grammar) Capture(name string, stub func()) {
 	if g.err != nil {
 		return
 	}
+
+	g.capturePos[name] = append(g.capturePos[name], p)
 
 	a := &parseAction{kind: captureAction, name: name, args: r.args, pos: p}
 	g.nb.append(a)
@@ -671,10 +691,18 @@ func (g *Grammar) Choice(options ...func()) {
 	p := g.markPosition(choiceAction)
 	if g.shouldExit(p, choiceAction) {
 		return
+	} else if options == nil {
+		g.Error(p, "cant call Choice() with nil")
+		return
 	}
 
 	args := make([]*parseAction, len(options))
 	for i, stub := range options {
+		if stub == nil {
+			g.Error(p, "cant call Choice() with nil")
+			return
+		}
+
 		r := g.buildStub(choiceAction, stub)
 
 		if g.err != nil {
@@ -691,6 +719,8 @@ func (g *Grammar) Optional(stub func()) {
 	p := g.markPosition(optionalAction)
 	if g.shouldExit(p, optionalAction) {
 		return
+	} else if stub == nil {
+		g.Error(p, "cant call Optional() with nil")
 	}
 	r := g.buildStub(optionalAction, stub)
 	if g.err != nil {
@@ -705,6 +735,8 @@ func (g *Grammar) Lookahead(stub func()) {
 	p := g.markPosition(lookaheadAction)
 	if g.shouldExit(p, lookaheadAction) {
 		return
+	} else if stub == nil {
+		g.Error(p, "cant call Lookahead() with nil")
 	}
 	r := g.buildStub(lookaheadAction, stub)
 	if g.err != nil {
@@ -719,6 +751,8 @@ func (g *Grammar) Reject(stub func()) {
 	p := g.markPosition(rejectAction)
 	if g.shouldExit(p, rejectAction) {
 		return
+	} else if stub == nil {
+		g.Error(p, "cant call Reject() with nil")
 	}
 	r := g.buildStub(rejectAction, stub)
 	if g.err != nil {
@@ -733,6 +767,8 @@ func (g *Grammar) Repeat(min_t int, max_t int, stub func()) {
 	p := g.markPosition(repeatAction)
 	if g.shouldExit(p, repeatAction) {
 		return
+	} else if stub == nil {
+		g.Error(p, "cant call Repeat() with nil")
 	}
 
 	r := g.buildStub(repeatAction, stub)
@@ -768,6 +804,13 @@ func (g *Grammar) Check() error {
 		}
 	}
 
+	for name, _ := range g.builders {
+		if _, ok := g.capturePos[name]; !ok {
+			p := g.builderPos[name]
+			g.Errorf(p, "missing capture %q for builder", name)
+		}
+	}
+
 	if g.Start == "" {
 		g.Error(g.pos, "starting rule undefined")
 	} else if _, ok := g.nameIdx[g.Start]; !ok {
@@ -787,6 +830,8 @@ func (g *Grammar) Builder(name string, stub BuilderFunc) {
 	} else if g.nb.inRule() {
 		g.Error(p, "cant call Builder() inside define")
 		return
+	} else if stub == nil {
+		g.Error(p, "cant call Builder() with nil")
 	}
 
 	if _, ok := g.builders[name]; ok {

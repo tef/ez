@@ -111,6 +111,7 @@ func TestErrors(t *testing.T) {
 	} else {
 		t.Logf("test grammar raised error:\n %v", g.err)
 	}
+
 	// invert must be called after Range
 	g = BuildGrammar(func(g *Grammar) {
 		g.Start = "expr"
@@ -124,6 +125,21 @@ func TestErrors(t *testing.T) {
 
 	if g.err == nil {
 		t.Error("bad invert should raise error")
+	} else {
+		t.Logf("test grammar raised error:\n %v", g.err)
+	}
+
+	// range must be sensible
+	g = BuildGrammar(func(g *Grammar) {
+		g.Start = "expr"
+
+		g.Define("expr", func() {
+			g.Range("9-0")
+		})
+	})
+
+	if g.err == nil {
+		t.Error("bad range should raise error")
 	} else {
 		t.Logf("test grammar raised error:\n %v", g.err)
 	}
@@ -144,18 +160,21 @@ func TestErrors(t *testing.T) {
 		t.Logf("test grammar raised error:\n %v", g.err)
 	}
 
-	// cant use unicode inside binary mode
+	// missing capture should raise error for builder
 	g = BuildGrammar(func(g *Grammar) {
-		g.Mode = BinaryMode()
 		g.Start = "expr"
 
 		g.Define("expr", func() {
-			g.Literal("\uFFEF")
+			g.Literal("foo")
+		})
+
+		g.Builder("expr", func(string, []any) (any, error) {
+			return nil, nil
 		})
 	})
 
 	if g.err == nil {
-		t.Error("rune should raise error")
+		t.Error("missing capture should raise error")
 	} else {
 		t.Logf("test grammar raised error:\n %v", g.err)
 	}
@@ -491,7 +510,6 @@ func TestCapture(t *testing.T) {
 			}
 		}
 
-		t.Logf("builders %v", parser.builders)
 		out, err := parser.Parse("A")
 
 		if err != nil || out == nil {
