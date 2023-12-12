@@ -281,7 +281,7 @@ func TestParser(t *testing.T) {
 		g.Define("start", func() {
 			g.Call("test_call")
 			g.Call("test_choice")
-			// g.Call("test_cut")
+			g.Call("test_cut")
 			g.Call("test_sequence")
 			g.Call("test_optional")
 			g.Call("test_repeat")
@@ -303,21 +303,15 @@ func TestParser(t *testing.T) {
 				g.Literal("c")
 			})
 		})
-		/*
-			g.Define("test_cut", func() {
-				g.Trace(func(){
-				g.Choice(func() {
-					g.Literal("a")
-					g.Print()
-					g.Cut()
-					g.Cut()
-					g.Literal("1")
-				}, func() {
-					g.Literal("aa")
-				})
-				})
+		g.Define("test_cut", func() {
+			g.Choice(func() {
+				g.Literal("a")
+				g.Cut()
+				g.Literal("1")
+			}, func() {
+				g.Literal("aa")
 			})
-		*/
+		})
 		g.Define("test_sequence", func() {
 			g.Sequence(func() {
 				g.Literal("a")
@@ -370,15 +364,13 @@ func TestParser(t *testing.T) {
 		if !ok {
 			t.Error("choice test case failed")
 		}
-		/*
-			ok = parser.testRule("test_cut",
-				[]string{"a1"},
-				[]string{"", "aa"},
-			)
-			if !ok {
-				t.Error("cut test case failed")
-			}
-		*/
+		ok = parser.testRule("test_cut",
+			[]string{"a1"},
+			[]string{"", "aa"},
+		)
+		if !ok {
+			t.Error("cut test case failed")
+		}
 		ok = parser.testRule("test_sequence",
 			[]string{"abc"},
 			[]string{"", "a", "ab", "abcd"},

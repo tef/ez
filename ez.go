@@ -17,9 +17,9 @@ const (
 	printAction = "Print"
 	traceAction = "Trace"
 
-	callAction   = "Call"
-	choiceAction = "Choice"
-	// cutAction       = "Cut"
+	callAction      = "Call"
+	choiceAction    = "Choice"
+	cutAction       = "Cut"
 	sequenceAction  = "Sequence"
 	optionalAction  = "Optional"
 	repeatAction    = "Repeat"
@@ -790,7 +790,6 @@ func (g *Grammar) Capture(name string, stub func()) {
 	g.nb.append(a)
 }
 
-/*
 func (g *Grammar) Cut() {
 	p := g.markPosition(cutAction)
 	if g.shouldExit(p, cutAction) {
@@ -804,7 +803,6 @@ func (g *Grammar) Cut() {
 	a := &parseAction{kind: cutAction, pos: p}
 	g.nb.append(a)
 }
-*/
 
 func (g *Grammar) Choice(options ...func()) {
 	p := g.markPosition(choiceAction)
@@ -1008,6 +1006,7 @@ type parseAction struct {
 
 func (a *parseAction) buildFunc(g *Grammar) parseFunc {
 	if a == nil {
+		// when a func() stub has no rules
 		return func(s *parserState) bool {
 			return true
 		}
@@ -1050,6 +1049,7 @@ func (a *parseAction) buildFunc(g *Grammar) parseFunc {
 				fn("%v: Trace() ending, at offset %v\n", prefix, s1.offset)
 				s.merge(&s1)
 			} else {
+				s.choiceExit = s1.choiceExit
 				fn("%v: Trace() failing, at offset %v\n", prefix, s.offset)
 			}
 			return result
@@ -1221,9 +1221,11 @@ func (a *parseAction) buildFunc(g *Grammar) parseFunc {
 			s.copyInto(&s1)
 			for _, r := range rules {
 				if !r(&s1) {
+					s.choiceExit = s1.choiceExit
 					return true
 				}
 			}
+			s.choiceExit = s1.choiceExit
 			s.merge(&s1)
 			return true
 		}
@@ -1237,9 +1239,11 @@ func (a *parseAction) buildFunc(g *Grammar) parseFunc {
 			s.copyInto(&s1)
 			for _, r := range rules {
 				if !r(&s1) {
+					s.choiceExit = s1.choiceExit
 					return false
 				}
 			}
+			s.choiceExit = s1.choiceExit
 			return true
 		}
 	case rejectAction:
@@ -1252,9 +1256,11 @@ func (a *parseAction) buildFunc(g *Grammar) parseFunc {
 			s.copyInto(&s1)
 			for _, r := range rules {
 				if !r(&s1) {
+					s.choiceExit = s1.choiceExit
 					return true
 				}
 			}
+			s.choiceExit = s1.choiceExit
 			return false
 		}
 
@@ -1273,21 +1279,28 @@ func (a *parseAction) buildFunc(g *Grammar) parseFunc {
 			for {
 				for _, r := range rules {
 					if !r(&s1) {
+						s.choiceExit = s1.choiceExit
 						return c >= min_n
 					}
 				}
-				c += 1
 				if c >= min_n {
 					s.merge(&s1)
+				} else {
+					s.choiceExit = s1.choiceExit
 				}
 
 				if max_n != 0 && c >= max_n {
 					break
 				}
 			}
-			return true
+			return c >= min_n
 		}
 
+	case cutAction:
+		return func(s *parserState) bool {
+			s.choiceExit = true
+			return true
+		}
 	case choiceAction:
 		rules := make([]parseFunc, len(a.args))
 		for i, r := range a.args {
@@ -1297,11 +1310,16 @@ func (a *parseAction) buildFunc(g *Grammar) parseFunc {
 			for _, r := range rules {
 				var s1 parserState
 				s.copyInto(&s1)
+				s1.choiceExit = false
 				if r(&s1) {
+					s1.choiceExit = s.choiceExit
 					s.merge(&s1)
 					return true
 				}
 				s.trim(&s1)
+				if s1.choiceExit {
+					break
+				}
 			}
 			return false
 		}
@@ -1315,6 +1333,7 @@ func (a *parseAction) buildFunc(g *Grammar) parseFunc {
 			s.copyInto(&s1)
 			for _, r := range rules {
 				if !r(&s1) {
+					s.choiceExit = s1.choiceExit
 					return false
 				}
 			}
@@ -1331,9 +1350,11 @@ func (a *parseAction) buildFunc(g *Grammar) parseFunc {
 			s.startCapture(&s1)
 			for _, r := range rules {
 				if !r(&s1) {
+					s.choiceExit = s1.choiceExit
 					return false
 				}
 			}
+			s.choiceExit = s1.choiceExit
 			s.mergeCapture(a.name, &s1)
 			return true
 		}
@@ -1378,6 +1399,7 @@ type parserState struct {
 	length     int
 	offset     int
 	lineParser *lineParser
+	choiceExit bool
 
 	nodes    []Node
 	numNodes int
