@@ -715,3 +715,35 @@ func TestCapture(t *testing.T) {
 		}
 	}
 }
+
+func BenchmarkParser(b *testing.B) {
+	var parser *Parser
+	var ok bool
+
+	parser = BuildParser(func(g *Grammar) {
+		g.Define("expr", func() {
+			g.Literal("x")
+			g.Optional(func() {
+				g.Call("expr")
+			})
+		})
+	})
+
+	if parser.err != nil {
+		b.Errorf("error defining grammar:\n%v", parser.err)
+	}
+	x := "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+	x = x + x + x + x + x + x + x + x + x + x + x + x + x + x + x
+	x = x + x + x + x + x + x + x + x + x + x + x + x + x + x + x
+	x = x + x + x + x + x + x
+
+	b.ResetTimer()
+
+	ok = parser.testGrammar(
+		[]string{x, x, x, x, x, x, x, x, x, x, x, x, x, x},
+		[]string{""},
+	)
+	if !ok {
+		b.Error("print test case failed to parse")
+	}
+}

@@ -923,6 +923,11 @@ func (g *Grammar) Check() error {
 		g.Error(g.pos, "misconfigured mode")
 		return g.err
 	}
+
+	if g.Start == "" && len(g.names) == 1 {
+		g.Start = g.names[0]
+	}
+
 	for name, pos := range g.callPos {
 		if _, ok := g.nameIdx[name]; !ok {
 			for _, p := range pos {
