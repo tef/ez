@@ -1070,7 +1070,7 @@ func (a *parseAction) buildFunc(g *Grammar) parseFunc {
 				fn("%v: Call(%q) starting, at offset %v\n", prefix, name, s.offset)
 			}
 
-			rule := s.rules[idx] // can't move this out to runtime unless we reorder defs
+			rule := s.i.rules[idx] // can't move this out to runtime unless we reorder defs
 			out := rule(s)
 
 			if s.trace {
@@ -1113,7 +1113,7 @@ func (a *parseAction) buildFunc(g *Grammar) parseFunc {
 		}
 	case endOfFileAction:
 		return func(s *parserState) bool {
-			return s.offset == s.length
+			return s.offset == s.i.length
 		}
 
 	case runeAction:
@@ -1396,12 +1396,16 @@ func (p *lineParser) advance(buf string, oldOffset int, newOffset int) {
 	}
 }
 
-type parserState struct {
-	rules []parseFunc
-	buf   string
+type parserInput struct {
+	rules  []parseFunc
+	buf    string
+	length int
+}
 
-	length     int
-	offset     int
+type parserState struct {
+	i      *parserInput
+	offset int
+
 	lineParser *lineParser
 	choiceExit bool
 
@@ -1479,30 +1483,30 @@ func (s *parserState) captureNode(name string) int {
 }
 
 func (s *parserState) atEnd() bool {
-	return s.offset >= s.length
+	return s.offset >= s.i.length
 }
 
 func (s *parserState) peekByte() byte {
-	return s.buf[s.offset]
+	return s.i.buf[s.offset]
 }
 
 func (s *parserState) peekRune() (rune, int) {
-	return utf8.DecodeRuneInString(s.buf[s.offset:])
+	return utf8.DecodeRuneInString(s.i.buf[s.offset:])
 }
 
 func (s *parserState) advance(length int) {
 	newOffset := s.offset + length
-	s.lineParser.advance(s.buf, s.offset, newOffset)
+	s.lineParser.advance(s.i.buf, s.offset, newOffset)
 	s.offset = newOffset
 
 }
 
 func (s *parserState) acceptString(v string) bool {
 	length_v := len(v)
-	if length_v+s.offset > s.length {
+	if length_v+s.offset > s.i.length {
 		return false
 	}
-	b := s.buf[s.offset : s.offset+length_v]
+	b := s.i.buf[s.offset : s.offset+length_v]
 	if b == v {
 		s.advance(length_v)
 		return true
@@ -1511,10 +1515,10 @@ func (s *parserState) acceptString(v string) bool {
 }
 func (s *parserState) acceptBytes(v []byte) bool {
 	length_v := len(v)
-	if length_v+s.offset > s.length {
+	if length_v+s.offset > s.i.length {
 		return false
 	}
-	b := s.buf[s.offset : s.offset+length_v]
+	b := s.i.buf[s.offset : s.offset+length_v]
 	if b == string(v) {
 		s.advance(length_v)
 		return true
@@ -1545,13 +1549,13 @@ func (p *Parser) Err() error {
 
 func (p *Parser) newParserState(s string) *parserState {
 	mode := p.grammar.Mode
-
-	return &parserState{
-		rules:      p.rules,
-		buf:        s,
-		length:     len(s),
-		lineParser: mode.lineParser(),
+	i := &parserInput{
+		rules:  p.rules,
+		buf:    s,
+		length: len(s),
 	}
+
+	return &parserState{i: i, lineParser: mode.lineParser()}
 }
 
 func (p *Parser) ParseTree(s string) (*ParseTree, error) {
