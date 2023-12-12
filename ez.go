@@ -1405,19 +1405,19 @@ func textModeColumnParser(buf string, column int, tabstop int, oldOffset int, ne
 }
 
 type parserInput struct {
-	rules  []parseFunc
-	buf    string
-	length int
+	rules        []parseFunc
+	buf          string
+	length       int
+	columnParser columnParserFunc
 }
 
 type parserState struct {
 	i      *parserInput
 	offset int
 
-	choiceExit   bool
-	column       int
-	tabstop      int
-	columnParser columnParserFunc
+	choiceExit bool
+	column     int
+	tabstop    int
 
 	nodes    []Node
 	numNodes int
@@ -1493,8 +1493,8 @@ func (s *parserState) peekRune() (rune, int) {
 
 func (s *parserState) advance(length int) {
 	newOffset := s.offset + length
-	if s.columnParser != nil {
-		s.column = s.columnParser(s.i.buf, s.column, s.tabstop, s.offset, newOffset)
+	if s.i.columnParser != nil {
+		s.column = s.i.columnParser(s.i.buf, s.column, s.tabstop, s.offset, newOffset)
 	}
 	s.offset = newOffset
 
@@ -1549,12 +1549,13 @@ func (p *Parser) Err() error {
 func (p *Parser) newParserState(s string) *parserState {
 	mode := p.grammar.Mode
 	i := &parserInput{
-		rules:  p.rules,
-		buf:    s,
-		length: len(s),
+		rules:        p.rules,
+		buf:          s,
+		length:       len(s),
+		columnParser: mode.columnParser(),
 	}
 
-	return &parserState{i: i, columnParser: mode.columnParser(), tabstop: mode.getTabstop()}
+	return &parserState{i: i, tabstop: mode.getTabstop()}
 }
 
 func (p *Parser) ParseTree(s string) (*ParseTree, error) {
