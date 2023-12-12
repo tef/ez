@@ -1426,7 +1426,10 @@ type parserState struct {
 
 	nodes    []Node
 	numNodes int
-	children []int
+
+	lastSibling  int
+	countSibling int
+	// children []int
 
 	trace bool
 
@@ -1452,33 +1455,96 @@ func (s *parserState) trim(new *parserState) {
 }
 func (s *parserState) startCapture(st *parserState) {
 	*st = *s
-	st.children = []int{}
+	// st.children = []int{}
+	st.countSibling = 0
+	st.lastSibling = 0
 }
+
 func (s *parserState) mergeCapture(name string, new *parserState) {
-	node := Node{
-		name:     name,
-		start:    s.offset,
-		end:      new.offset,
-		children: new.children,
+
+	// children := make([]int, new.countSibling)
+
+	nextSibling := new.lastSibling
+	lastSibling := 0
+
+	for i := 0; i < new.countSibling; i++ {
+		nodeSibling := new.nodes[nextSibling].sibling
+
+		new.nodes[nextSibling].sibling = lastSibling
+		new.nodes[nextSibling].nsibling = i
+
+		//	children[new.countSibling-i-1] = nextSibling
+
+		lastSibling = nextSibling
+		nextSibling = nodeSibling
 	}
+
+	new.lastSibling = lastSibling
+
+	/*
+
+		children2 := make([]int, new.countSibling)
+
+		for j := 0; j < new.countSibling; j++ {
+			children2[j] = lastSibling
+			lastSibling = new.nodes[lastSibling].sibling
+			if children2[j] != new.children[j]  {
+				fmt.Println("bad")
+			}
+		}
+	*/
+
+	node := Node{
+		name:  name,
+		start: s.offset,
+		end:   new.offset,
+		//	children: new.children,
+		sibling:  s.lastSibling,
+		nsibling: s.countSibling,
+		child:    new.lastSibling,
+		nchild:   new.countSibling,
+	}
+
 	new.nodes = append(new.nodes[:new.numNodes], node)
-	new.children = append(s.children, new.numNodes)
+	// new.children = append(s.children, new.numNodes)
+	new.lastSibling = new.numNodes
+	new.countSibling = s.countSibling + 1
 	new.numNodes = new.numNodes + 1
 	*s = *new
+
 }
 
 func (s *parserState) captureNode(name string) int {
-	if len(s.children) == 1 {
-		return s.children[0]
+	if s.countSibling == 1 {
+		return s.lastSibling
 	} else {
+		nextSibling := s.lastSibling
+		lastSibling := 0
+
+		for i := 0; i < s.countSibling; i++ {
+			nodeSibling := s.nodes[nextSibling].sibling
+
+			s.nodes[nextSibling].sibling = lastSibling
+			s.nodes[nextSibling].nsibling = i
+
+			lastSibling = nextSibling
+			nextSibling = nodeSibling
+		}
+
+		s.lastSibling = lastSibling
+
 		node := Node{
-			name:     name,
-			start:    0,
-			end:      s.offset,
-			children: s.children,
+			name:  name,
+			start: 0,
+			end:   s.offset,
+			//	children: s.children,
+			child:  s.lastSibling,
+			nchild: s.countSibling,
 		}
 		s.nodes = append(s.nodes[:s.numNodes], node)
-		s.children = []int{}
+		// s.children = []int{}
+		s.countSibling = 0
+		s.lastSibling = s.numNodes
 		s.numNodes = s.numNodes + 1
 		return s.numNodes - 1
 	}
@@ -1641,7 +1707,22 @@ type Node struct {
 	name     string
 	start    int
 	end      int
-	children []int
+	child    int
+	nchild   int
+	sibling  int
+	nsibling int
+	// children []int
+}
+
+func (n *Node) children(t *ParseTree) []int {
+	children := make([]int, n.nchild)
+	c := n.child
+
+	for j := 0; j < n.nchild; j++ {
+		children[j] = c
+		c = t.nodes[c].sibling
+	}
+	return children
 }
 
 type ParseTree struct {
@@ -1650,13 +1731,27 @@ type ParseTree struct {
 	root  int
 }
 
+func (t *ParseTree) children(i int) []int {
+	n := t.nodes[i]
+	children := make([]int, n.nchild)
+	c := n.child
+
+	for j := 0; j < n.nchild; j++ {
+		children[j] = c
+		c = t.nodes[c].sibling
+	}
+	return children
+}
+
 func (t *ParseTree) Walk(f func(*Node)) {
 	var walk func(int)
 
 	walk = func(i int) {
 		n := &t.nodes[i]
-		for _, c := range n.children {
+		c := n.child
+		for i := 0; i < n.nchild; i++ {
 			walk(c)
+			c = t.nodes[c].sibling
 		}
 		f(n)
 
@@ -1670,9 +1765,13 @@ func (t *ParseTree) Build(builders map[string]BuilderFunc) (any, error) {
 	build = func(i int) (any, error) {
 		var err error
 		n := &t.nodes[i]
-		args := make([]any, len(n.children))
-		for idx, c := range n.children {
-			args[idx], err = build(c)
+		args := make([]any, n.nchild)
+		nextChild := n.child
+		for idx := 0; idx < n.nchild; idx++ {
+
+			args[idx], err = build(nextChild)
+			nextChild = t.nodes[nextChild].sibling
+
 			if err != nil {
 				return nil, err
 			}

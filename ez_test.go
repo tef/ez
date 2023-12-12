@@ -615,7 +615,9 @@ func TestCapture(t *testing.T) {
 
 				}, func() {
 					g.Capture("b", func() {
-						g.Literal("B")
+						g.Capture("b2", func() {
+							g.Literal("B")
+						})
 						g.Capture("c", func() {
 							g.Literal("C")
 						})
@@ -643,9 +645,9 @@ func TestCapture(t *testing.T) {
 		} else {
 			t.Log("ABC parsed")
 			tree.Walk(func(n *Node) {
-				t.Logf("node %q %q %v", n.name, tree.buf[n.start:n.end], n.children)
+				t.Logf("node %q %q %v, %v %v", n.name, tree.buf[n.start:n.end], n.children(tree), n.nchild, n.nsibling)
 			})
-			if len(tree.nodes) != 3 {
+			if len(tree.nodes) != 4 {
 				t.Error("wrong nodes count")
 			}
 		}
@@ -694,7 +696,7 @@ func TestCapture(t *testing.T) {
 		} else {
 			t.Log("A parsed")
 			tree.Walk(func(n *Node) {
-				t.Logf("node %q %q %v", n.name, tree.buf[n.start:n.end], n.children)
+				t.Logf("node %q %q %v, %v %v", n.name, tree.buf[n.start:n.end], n.children(tree), n.nchild, n.nsibling)
 			})
 			if len(tree.nodes) != 1 {
 				t.Error("wrong nodes count")
@@ -716,9 +718,10 @@ func TestCapture(t *testing.T) {
 	}
 }
 
+var ok bool
+
 func BenchmarkParser(b *testing.B) {
 	var parser *Parser
-	var ok bool
 
 	parser = BuildParser(func(g *Grammar) {
 		g.Define("expr", func() {
