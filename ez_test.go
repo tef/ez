@@ -573,7 +573,7 @@ func TestTextMode(t *testing.T) {
 
 	parser = BuildParser(func(g *Grammar) {
 		g.Start = "expr"
-		g.Mode = TextMode()
+		g.Mode = TextMode().Tabstop(8)
 		g.Define("expr", func() {
 			g.StartOfLine()
 			g.Literal("example")

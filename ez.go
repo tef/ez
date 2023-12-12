@@ -56,11 +56,11 @@ func Printf(format string, a ...any) {
 	fmt.Printf(format, a...)
 }
 
-func TextMode() ParserMode {
+func TextMode() *textMode {
 	return &textMode{
 		whitespace: []string{" ", "\t"},
 		newline:    []string{"\r\n", "\r", "\n"},
-		Tabstop:    8,
+		tabstop:    8,
 		actionsDisabled: []string{
 			byteAction,
 			byteRangeAction,
@@ -184,7 +184,6 @@ type stringMode struct {
 	whitespace []string
 	// Tab
 	newline         []string
-	Tabstop         int
 	actionsDisabled []string
 }
 
@@ -220,12 +219,17 @@ func (m *stringMode) whitespaces() []string {
 type textMode struct {
 	whitespace      []string
 	newline         []string
-	Tabstop         int
+	tabstop         int
 	actionsDisabled []string
 }
 
+func (m *textMode) Tabstop(t int) *textMode {
+	m.tabstop = t
+	return m
+}
+
 func (m *textMode) lineParser() *lineParser {
-	return &lineParser{tabstop: m.Tabstop}
+	return &lineParser{tabstop: m.tabstop}
 }
 
 func (m *textMode) name() string {
@@ -1646,6 +1650,7 @@ func (t *ParseTree) Walk(f func(*Node)) {
 			walk(c)
 		}
 		f(n)
+
 	}
 	walk(t.root)
 }
