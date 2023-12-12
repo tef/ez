@@ -1,3 +1,3 @@
-module github.com/tef/ez
+module ez
 
 go 1.20

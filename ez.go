@@ -1535,6 +1535,10 @@ type Parser struct {
 	err      error
 }
 
+func (p *Parser) Err() error {
+	return p.err
+}
+
 func (p *Parser) newParserState(s string) *parserState {
 	mode := p.grammar.Mode
 
