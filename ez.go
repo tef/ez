@@ -140,11 +140,12 @@ func BuildParser(stub func(*Grammar)) *Parser {
 
 type ParserMode interface {
 	name() string
-	lineParser() *lineParser
+	columnParser() columnParserFunc
 	actionAllowed(string) bool
 	check() bool
 	whitespaces() []string
 	newlines() []string
+	getTabstop() int
 }
 
 type binaryMode struct {
@@ -155,7 +156,7 @@ func (m *binaryMode) name() string {
 	return "binary mode"
 }
 
-func (m *binaryMode) lineParser() *lineParser {
+func (m *binaryMode) columnParser() columnParserFunc {
 	return nil
 }
 
@@ -180,6 +181,10 @@ func (m *binaryMode) whitespaces() []string {
 	return []string{}
 }
 
+func (m *binaryMode) getTabstop() int {
+	return 0
+}
+
 type stringMode struct {
 	whitespace []string
 	// Tab
@@ -187,7 +192,7 @@ type stringMode struct {
 	actionsDisabled []string
 }
 
-func (m *stringMode) lineParser() *lineParser {
+func (m *stringMode) columnParser() columnParserFunc {
 	return nil
 }
 
@@ -216,6 +221,10 @@ func (m *stringMode) whitespaces() []string {
 	return m.whitespace
 }
 
+func (m *stringMode) getTabstop() int {
+	return 0
+}
+
 type textMode struct {
 	whitespace      []string
 	newline         []string
@@ -228,8 +237,8 @@ func (m *textMode) Tabstop(t int) *textMode {
 	return m
 }
 
-func (m *textMode) lineParser() *lineParser {
-	return &lineParser{tabstop: m.tabstop}
+func (m *textMode) columnParser() columnParserFunc {
+	return textModeColumnParser
 }
 
 func (m *textMode) name() string {
@@ -254,6 +263,10 @@ func (m *textMode) newlines() []string {
 
 func (m *textMode) whitespaces() []string {
 	return m.whitespace
+}
+
+func (m *textMode) getTabstop() int {
+	return m.tabstop
 }
 
 type filePosition struct {
@@ -1022,7 +1035,7 @@ func (a *parseAction) buildFunc(g *Grammar) parseFunc {
 		fn := g.LogFunc
 		return func(s *parserState) bool {
 			msg := fmt.Sprint(a.message...)
-			fn("%v: Print(%q) called, at offset %v, column %v\n", prefix, msg, s.offset, s.column())
+			fn("%v: Print(%q) called, at offset %v, column %v\n", prefix, msg, s.offset, s.column)
 			return true
 		}
 	case traceAction:
@@ -1105,7 +1118,7 @@ func (a *parseAction) buildFunc(g *Grammar) parseFunc {
 
 	case startOfLineAction:
 		return func(s *parserState) bool {
-			return s.column() == 0
+			return s.column == 0
 		}
 	case startOfFileAction:
 		return func(s *parserState) bool {
@@ -1369,31 +1382,26 @@ func (a *parseAction) buildFunc(g *Grammar) parseFunc {
 	}
 }
 
-type lineParser struct {
-	column  int
-	tabstop int
-}
+type columnParserFunc func(string, int, int, int, int) int
 
-func (p *lineParser) advance(buf string, oldOffset int, newOffset int) {
-	if p == nil {
-		return
-	}
+func textModeColumnParser(buf string, column int, tabstop int, oldOffset int, newOffset int) int {
 	for i := oldOffset; i < newOffset; i++ {
 		switch buf[i] {
 		case byte('\t'):
-			width := (p.tabstop - ((p.column) % p.tabstop))
-			p.column += width
+			width := tabstop - (column % tabstop)
+			column += width
 		case byte('\r'):
-			p.column = 0
+			column = 0
 		case byte('\n'):
 			if i > 1 && buf[i-1] != byte('\r') {
-				p.column = 0
+				column = 0
 			}
 
 		default:
-			p.column += 1
+			column += 1
 		}
 	}
+	return column
 }
 
 type parserInput struct {
@@ -1406,8 +1414,10 @@ type parserState struct {
 	i      *parserInput
 	offset int
 
-	lineParser *lineParser
-	choiceExit bool
+	choiceExit   bool
+	column       int
+	tabstop      int
+	columnParser columnParserFunc
 
 	nodes    []Node
 	numNodes int
@@ -1425,18 +1435,8 @@ type parserState struct {
 
 }
 
-func (s *parserState) column() int {
-	if s.lineParser == nil {
-		return -1
-	}
-	return s.lineParser.column
-}
-
 func (s *parserState) copyInto(into *parserState) {
 	*into = *s
-	if s.lineParser != nil {
-		*into.lineParser = *s.lineParser
-	}
 }
 
 func (s *parserState) merge(new *parserState) {
@@ -1447,9 +1447,6 @@ func (s *parserState) trim(new *parserState) {
 }
 func (s *parserState) startCapture(st *parserState) {
 	*st = *s
-	if s.lineParser != nil {
-		*st.lineParser = *s.lineParser
-	}
 	st.children = []int{}
 }
 func (s *parserState) mergeCapture(name string, new *parserState) {
@@ -1496,7 +1493,9 @@ func (s *parserState) peekRune() (rune, int) {
 
 func (s *parserState) advance(length int) {
 	newOffset := s.offset + length
-	s.lineParser.advance(s.i.buf, s.offset, newOffset)
+	if s.columnParser != nil {
+		s.column = s.columnParser(s.i.buf, s.column, s.tabstop, s.offset, newOffset)
+	}
 	s.offset = newOffset
 
 }
@@ -1555,7 +1554,7 @@ func (p *Parser) newParserState(s string) *parserState {
 		length: len(s),
 	}
 
-	return &parserState{i: i, lineParser: mode.lineParser()}
+	return &parserState{i: i, columnParser: mode.columnParser(), tabstop: mode.getTabstop()}
 }
 
 func (p *Parser) ParseTree(s string) (*ParseTree, error) {
