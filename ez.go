@@ -53,6 +53,12 @@ func TextMode() ParserMode {
 		Tabstop:    8,
 	}
 }
+func StringMode() ParserMode {
+	return &stringMode{
+		whitespace: []string{" ", "\t", "\r\n", "\r", "\n"},
+		newline:    []string{"\r\n", "\r", "\n"},
+	}
+}
 
 func BinaryMode() ParserMode {
 	return &binaryMode{}
@@ -102,6 +108,8 @@ type ParserMode interface {
 	actionAllowed(string) bool
 	check() bool
 	acceptLiteral(string) bool
+	whitespaces() []string
+	newlines() []string
 }
 
 type binaryMode struct{}
@@ -142,6 +150,14 @@ func (*binaryMode) acceptLiteral(s string) bool {
 	return true
 }
 
+func (*binaryMode) newlines() []string {
+	return []string{}
+}
+
+func (*binaryMode) whitespaces() []string {
+	return []string{}
+}
+
 var textDisabled = []string{}
 
 type textMode struct {
@@ -173,6 +189,60 @@ func (*textMode) check() bool {
 
 func (*textMode) acceptLiteral(s string) bool {
 	return true
+}
+func (t *textMode) newlines() []string {
+	return t.newline
+}
+
+func (t *textMode) whitespaces() []string {
+	return t.whitespace
+}
+
+var stringDisabled = []string{
+	partialTabAction,
+	startOfLineAction,
+	endOfLineAction,
+	indentAction,
+	dedentAction,
+}
+
+type stringMode struct {
+	whitespace []string
+	// Tab
+	newline []string
+	Tabstop int
+}
+
+func (t *stringMode) lineParser() *lineParser {
+	return nil
+}
+
+func (*stringMode) name() string {
+	return "string mode"
+}
+
+func (*stringMode) actionAllowed(s string) bool {
+	for _, v := range stringDisabled {
+		if v == s {
+			return false
+		}
+	}
+	return true
+}
+func (*stringMode) check() bool {
+	return true
+}
+
+func (*stringMode) acceptLiteral(s string) bool {
+	return true
+}
+
+func (s *stringMode) newlines() []string {
+	return s.newline
+}
+
+func (s *stringMode) whitespaces() []string {
+	return s.whitespace
 }
 
 type filePosition struct {
@@ -959,19 +1029,19 @@ func (a *parseAction) buildFunc(g *Grammar) parseFunc {
 	// case dedentAction
 
 	case whitespaceAction:
-		mode := g.Mode.(*textMode)
+		ws := g.Mode.whitespaces()
 		return func(s *parserState) bool {
 			for {
-				if !s.acceptAny(mode.whitespace) {
+				if !s.acceptAny(ws) {
 					break
 				}
 			}
 			return true
 		}
 	case endOfLineAction, newlineAction:
-		mode := g.Mode.(*textMode)
+		nl := g.Mode.newlines()
 		return func(s *parserState) bool {
-			return s.acceptAny(mode.newline)
+			return s.acceptAny(nl)
 		}
 
 	case startOfLineAction:
