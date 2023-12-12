@@ -195,6 +195,7 @@ func TestErrors(t *testing.T) {
 	}
 
 }
+
 func TestLogger(t *testing.T) {
 	var parser *Parser
 	var ok bool
@@ -270,6 +271,7 @@ func TestLogger(t *testing.T) {
 	}
 
 }
+
 func TestParser(t *testing.T) {
 	var parser *Parser
 	var ok bool
@@ -277,7 +279,51 @@ func TestParser(t *testing.T) {
 		g.Mode = TextMode()
 		g.Start = "start"
 		g.Define("start", func() {
+			g.Call("test_call")
+			g.Call("test_choice")
+			// g.Call("test_cut")
+			g.Call("test_sequence")
 			g.Call("test_optional")
+			g.Call("test_repeat")
+			g.Call("test_lookahead")
+			g.Call("test_reject")
+		})
+		g.Define("test_call", func() {
+			g.Call("example")
+		})
+		g.Define("example", func() {
+			g.Literal("example")
+		})
+		g.Define("test_choice", func() {
+			g.Choice(func() {
+				g.Literal("a")
+			}, func() {
+				g.Literal("b")
+			}, func() {
+				g.Literal("c")
+			})
+		})
+		/*
+			g.Define("test_cut", func() {
+				g.Trace(func(){
+				g.Choice(func() {
+					g.Literal("a")
+					g.Print()
+					g.Cut()
+					g.Cut()
+					g.Literal("1")
+				}, func() {
+					g.Literal("aa")
+				})
+				})
+			})
+		*/
+		g.Define("test_sequence", func() {
+			g.Sequence(func() {
+				g.Literal("a")
+				g.Literal("b")
+				g.Literal("c")
+			})
 		})
 		g.Define("test_optional", func() {
 			g.Optional(func() {
@@ -289,16 +335,84 @@ func TestParser(t *testing.T) {
 			})
 			g.Literal("4")
 		})
+		g.Define("test_repeat", func() {
+			g.Repeat(0, 0, func() {
+				g.Literal("a")
+			})
+		})
+		g.Define("test_lookahead", func() {
+			g.Lookahead(func() {
+				g.Literal("a")
+			})
+			g.Rune()
+		})
+		g.Define("test_reject", func() {
+			g.Reject(func() {
+				g.Literal("a")
+			})
+			g.Rune()
+		})
 	})
 	if parser.err != nil {
 		t.Errorf("error defining grammar:\n%v", parser.err)
 	} else {
+		ok = parser.testRule("test_call",
+			[]string{"example"},
+			[]string{"failure"},
+		)
+		if !ok {
+			t.Error("call test case failed")
+		}
+		ok = parser.testRule("test_choice",
+			[]string{"a", "b", "c"},
+			[]string{"", "d"},
+		)
+		if !ok {
+			t.Error("choice test case failed")
+		}
+		/*
+			ok = parser.testRule("test_cut",
+				[]string{"a1"},
+				[]string{"", "aa"},
+			)
+			if !ok {
+				t.Error("cut test case failed")
+			}
+		*/
+		ok = parser.testRule("test_sequence",
+			[]string{"abc"},
+			[]string{"", "a", "ab", "abcd"},
+		)
+		if !ok {
+			t.Error("sequence test case failed")
+		}
 		ok = parser.testRule("test_optional",
 			[]string{"24", "124", "234", "1234"},
 			[]string{"", "1", "34", "23", "123"},
 		)
 		if !ok {
 			t.Error("optional test case failed")
+		}
+		ok = parser.testRule("test_repeat",
+			[]string{"", "a", "aa", "aaaa"},
+			[]string{"ab", "ba", "aba"},
+		)
+		if !ok {
+			t.Error("repeat test case failed")
+		}
+		ok = parser.testRule("test_lookahead",
+			[]string{"a"},
+			[]string{"", "b"},
+		)
+		if !ok {
+			t.Error("lookahead test case failed")
+		}
+		ok = parser.testRule("test_reject",
+			[]string{"b"},
+			[]string{"", "a"},
+		)
+		if !ok {
+			t.Error("reject test case failed")
 		}
 	}
 }

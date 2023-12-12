@@ -17,9 +17,9 @@ const (
 	printAction = "Print"
 	traceAction = "Trace"
 
-	callAction      = "Call"
-	choiceAction    = "Choice"
-	cutAction       = "Cut"
+	callAction   = "Call"
+	choiceAction = "Choice"
+	// cutAction       = "Cut"
 	sequenceAction  = "Sequence"
 	optionalAction  = "Optional"
 	repeatAction    = "Repeat"
@@ -790,6 +790,7 @@ func (g *Grammar) Capture(name string, stub func()) {
 	g.nb.append(a)
 }
 
+/*
 func (g *Grammar) Cut() {
 	p := g.markPosition(cutAction)
 	if g.shouldExit(p, cutAction) {
@@ -802,8 +803,9 @@ func (g *Grammar) Cut() {
 
 	a := &parseAction{kind: cutAction, pos: p}
 	g.nb.append(a)
-
 }
+*/
+
 func (g *Grammar) Choice(options ...func()) {
 	p := g.markPosition(choiceAction)
 	if g.shouldExit(p, choiceAction) {
@@ -1005,6 +1007,11 @@ type parseAction struct {
 }
 
 func (a *parseAction) buildFunc(g *Grammar) parseFunc {
+	if a == nil {
+		return func(s *parserState) bool {
+			return true
+		}
+	}
 	switch a.kind {
 	case printAction:
 		p := g.posInfo[a.pos]
