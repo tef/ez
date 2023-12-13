@@ -72,7 +72,7 @@ func TextMode() *textMode {
 		},
 	}
 }
-func StringMode() ParserMode {
+func StringMode() *stringMode {
 	return &stringMode{
 		whitespace: []string{" ", "\t", "\r\n", "\r", "\n"},
 		newline:    []string{"\r\n", "\r", "\n"},
@@ -86,7 +86,7 @@ func StringMode() ParserMode {
 	}
 }
 
-func BinaryMode() ParserMode {
+func BinaryMode() *binaryMode {
 	return &binaryMode{
 		actionsDisabled: []string{
 			runeAction,
@@ -143,11 +143,11 @@ func BuildParser(stub func(*Grammar)) *Parser {
 
 type ParserMode interface {
 	name() string
-	columnParser() columnParserFunc
-	actionAllowed(string) bool
 	check() bool
-	whitespaces() []string
-	newlines() []string
+	actionAllowed(string) bool
+	getColumnParser() columnParserFunc
+	getWhitespace() []string
+	getNewlines() []string
 	getTabstop() int
 }
 
@@ -159,7 +159,7 @@ func (m *binaryMode) name() string {
 	return "binary mode"
 }
 
-func (m *binaryMode) columnParser() columnParserFunc {
+func (m *binaryMode) getColumnParser() columnParserFunc {
 	return nil
 }
 
@@ -176,11 +176,11 @@ func (m *binaryMode) check() bool {
 	return true
 }
 
-func (m *binaryMode) newlines() []string {
+func (m *binaryMode) getNewlines() []string {
 	return []string{}
 }
 
-func (m *binaryMode) whitespaces() []string {
+func (m *binaryMode) getWhitespace() []string {
 	return []string{}
 }
 
@@ -195,7 +195,7 @@ type stringMode struct {
 	actionsDisabled []string
 }
 
-func (m *stringMode) columnParser() columnParserFunc {
+func (m *stringMode) getColumnParser() columnParserFunc {
 	return nil
 }
 
@@ -216,11 +216,11 @@ func (m *stringMode) check() bool {
 	return true
 }
 
-func (m *stringMode) newlines() []string {
+func (m *stringMode) getNewlines() []string {
 	return m.newline
 }
 
-func (m *stringMode) whitespaces() []string {
+func (m *stringMode) getWhitespace() []string {
 	return m.whitespace
 }
 
@@ -240,7 +240,7 @@ func (m *textMode) Tabstop(t int) *textMode {
 	return m
 }
 
-func (m *textMode) columnParser() columnParserFunc {
+func (m *textMode) getColumnParser() columnParserFunc {
 	return textModeColumnParser
 }
 
@@ -260,11 +260,11 @@ func (m *textMode) check() bool {
 	return true
 }
 
-func (m *textMode) newlines() []string {
+func (m *textMode) getNewlines() []string {
 	return m.newline
 }
 
-func (m *textMode) whitespaces() []string {
+func (m *textMode) getWhitespace() []string {
 	return m.whitespace
 }
 
@@ -1208,7 +1208,7 @@ func (a *parseAction) buildFunc(g *Grammar) parseFunc {
 	// case dedentAction
 
 	case whitespaceAction:
-		ws := g.Mode.whitespaces()
+		ws := g.Mode.getWhitespace()
 		return func(s *parserState) bool {
 			for {
 				if !s.acceptAny(ws) {
@@ -1218,7 +1218,7 @@ func (a *parseAction) buildFunc(g *Grammar) parseFunc {
 			return true
 		}
 	case endOfLineAction, newlineAction:
-		nl := g.Mode.newlines()
+		nl := g.Mode.getNewlines()
 		return func(s *parserState) bool {
 			return s.acceptAny(nl)
 		}
@@ -1778,7 +1778,7 @@ func (p *Parser) newParserState(s string) *parserState {
 		rules:        p.rules,
 		buf:          s,
 		length:       len(s),
-		columnParser: mode.columnParser(),
+		columnParser: mode.getColumnParser(),
 	}
 
 	return &parserState{i: i, tabstop: mode.getTabstop()}
