@@ -454,7 +454,7 @@ func TestStringMode(t *testing.T) {
 			g.Literal("example")
 		})
 		g.Define("test_range", func() {
-			g.Range("0-9")
+			g.Range("0", "1-9")
 		})
 		g.Define("test_inverted_range", func() {
 			g.Range("0-9").Invert()

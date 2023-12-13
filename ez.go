@@ -480,6 +480,7 @@ func (g *Grammar) buildGrammar(stub func(*Grammar)) error {
 	g.builderPos = make(map[string]int, 0)
 	g.nb = &nodeBuilder{kind: grammarAction}
 	g.Mode = TextMode()
+
 	stub(g)
 	g.nb = nil
 
@@ -703,7 +704,7 @@ func (g *Grammar) Range(s ...string) RangeOptions {
 	args := make([]string, len(s))
 	for i, v := range s {
 		r := []rune(v)
-		if len(r) != 3 || r[1] != '-' || r[0] > r[2] {
+		if !(len(r) == 1 || (len(r) == 3 && r[1] == '-' && r[0] < r[2])) {
 			g.Error(p, "invalid range", v)
 			return ro
 		}
@@ -803,7 +804,7 @@ func (g *Grammar) ByteRange(s ...string) RangeOptions {
 	args := make([]string, len(s))
 	for i, v := range s {
 		r := []byte(v)
-		if len(r) != 3 || r[1] != '-' || r[0] > r[2] {
+		if !(len(r) == 1 || (len(r) == 3 && r[1] == '-' && r[0] < r[2])) {
 			g.Error(p, "invalid range", v)
 			return ro
 		}
@@ -1330,7 +1331,11 @@ func (a *parseAction) buildFunc(g *Grammar) parseFunc {
 		runeRanges := make([][]rune, len(a.ranges))
 		for i, v := range a.ranges {
 			n := []rune(v)
-			runeRanges[i] = []rune{n[0], n[2]}
+			if len(n) == 1 {
+				runeRanges[i] = []rune{n[0], n[0]}
+			} else {
+				runeRanges[i] = []rune{n[0], n[2]}
+			}
 		}
 		return func(s *parserState) bool {
 			if s.atEnd() {
@@ -1362,7 +1367,11 @@ func (a *parseAction) buildFunc(g *Grammar) parseFunc {
 		byteRanges := make([][]byte, len(a.ranges))
 		for i, v := range a.ranges {
 			n := []byte(v)
-			byteRanges[i] = []byte{n[0], n[2]}
+			if len(n) == 1 {
+				byteRanges[i] = []byte{n[0], n[0]}
+			} else {
+				byteRanges[i] = []byte{n[0], n[2]}
+			}
 		}
 		return func(s *parserState) bool {
 			if s.atEnd() {
