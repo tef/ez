@@ -443,6 +443,7 @@ func TestStringMode(t *testing.T) {
 			g.Call("test_literal")
 			g.Call("test_range")
 			g.Call("test_inverted_range")
+			g.Call("test_peek_rune")
 		})
 
 		g.Define("test_rune", func() {
@@ -457,6 +458,19 @@ func TestStringMode(t *testing.T) {
 		})
 		g.Define("test_inverted_range", func() {
 			g.Range("0-9").Invert()
+		})
+		g.Define("test_peek_rune", func() {
+			g.PeekRune(map[rune]func(){
+				'1': func() {
+					g.Literal("1")
+				},
+				'2': func() {
+					g.Literal("22")
+				},
+				'3': func() {
+					g.Literal("333")
+				},
+			})
 		})
 	})
 
@@ -491,6 +505,13 @@ func TestStringMode(t *testing.T) {
 		if !ok {
 			t.Error("rune test case failed")
 		}
+		ok = parser.testRule("test_peek_rune",
+			[]string{"1", "22", "333"},
+			[]string{"111", "2", "33"},
+		)
+		if !ok {
+			t.Error("peek rune test case failed")
+		}
 
 	}
 }
@@ -507,6 +528,7 @@ func TestBinaryMode(t *testing.T) {
 			g.Call("test_inverted_byterange")
 			g.Call("test_bytestring")
 			g.Call("test_bytes")
+			g.Call("test_peek_byte")
 		})
 
 		g.Define("test_byte", func() {
@@ -523,6 +545,19 @@ func TestBinaryMode(t *testing.T) {
 		})
 		g.Define("test_bytestring", func() {
 			g.ByteString("test")
+		})
+		g.Define("test_peek_byte", func() {
+			g.PeekByte(map[byte]func(){
+				'1': func() {
+					g.ByteString("1")
+				},
+				'2': func() {
+					g.ByteString("22")
+				},
+				'3': func() {
+					g.ByteString("333")
+				},
+			})
 		})
 	})
 	if parser.err != nil {
@@ -562,6 +597,13 @@ func TestBinaryMode(t *testing.T) {
 		)
 		if !ok {
 			t.Error("bytestring test case failed")
+		}
+		ok = parser.testRule("test_peek_byte",
+			[]string{"1", "22", "333"},
+			[]string{"111", "2", "33"},
+		)
+		if !ok {
+			t.Error("peek byte test case failed")
 		}
 	}
 

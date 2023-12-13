@@ -27,21 +27,19 @@ if p.Err != nil {
         fmt.Println("err:", p.Err)
 }
 
-if p.Accept("true") {
+tree, err := p.Parse("true") 
+if err != nil {
         fmt.Println("parsed true!")
 }
 ```
 
 `ez` handles things like parsing indented blocks, back references (for matching delimiters),
-and a few other features to make writing a grammar less of a headache, especially for
-things like document markup formats.
+data dependent grammars (length prefixed values), and infix operators with precedence.
+`ez` also comes with `Print()` and `Trace()` operators to help you debug a grammar, too.
 
 # what makes `ez` different
 
 `ez` is a little different from other parsing libraries. 
-
-Instead of using combinators, like `rule := oc.And(oc.Literal("foo"), oc.Literal("bar")`,
-or a new language inside string, `rule := oc.Rule(" 'foo',  'bar' ")`, 
 `ez` uses callbacks to build up nested structures, like so:
 
 ```

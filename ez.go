@@ -30,7 +30,9 @@ const (
 	startOfFileAction = "StartOfFie"
 	endOfFileAction   = "EndOfFile"
 
+	peekAction       = "Peek"
 	runeAction       = "Rune"
+	peekRuneAction   = "PeekRune"
 	literalAction    = "Literal"
 	rangeAction      = "Range"
 	whitespaceAction = "Whitespace"
@@ -45,6 +47,7 @@ const (
 
 	byteAction       = "Byte"
 	byteRangeAction  = "ByteRange"
+	peekByteAction   = "PeekByte"
 	byteListAction   = "Bytes"
 	byteStringAction = "ByteString"
 )
@@ -615,6 +618,60 @@ func (g *Grammar) Rune() {
 	g.nb.append(a)
 }
 
+func (g *Grammar) Peek(stubs map[string]func()) {
+	p := g.markPosition(peekAction)
+	if g.shouldExit(p, peekAction) {
+		return
+	} else if stubs == nil {
+		g.Error(p, "cant call Peek() with nil map")
+		return
+	}
+
+	args := make(map[string]*parseAction, len(stubs))
+	for c, stub := range stubs {
+		if stub == nil {
+			g.Error(p, "cant call Peek() with nil function")
+			return
+		}
+
+		r := g.buildStub(peekAction, stub)
+
+		if g.err != nil {
+			return
+		}
+
+		args[c] = r.buildSequence(p)
+	}
+	a := &parseAction{kind: peekAction, stringSwitch: args, pos: p}
+	g.nb.append(a)
+}
+func (g *Grammar) PeekRune(stubs map[rune]func()) {
+	p := g.markPosition(peekRuneAction)
+	if g.shouldExit(p, peekRuneAction) {
+		return
+	} else if stubs == nil {
+		g.Error(p, "cant call PeekRune() with nil map")
+		return
+	}
+
+	args := make(map[rune]*parseAction, len(stubs))
+	for c, stub := range stubs {
+		if stub == nil {
+			g.Error(p, "cant call PeekRune() with nil function")
+			return
+		}
+
+		r := g.buildStub(peekRuneAction, stub)
+
+		if g.err != nil {
+			return
+		}
+
+		args[c] = r.buildSequence(p)
+	}
+	a := &parseAction{kind: peekRuneAction, runeSwitch: args, pos: p}
+	g.nb.append(a)
+}
 func (g *Grammar) Literal(s ...string) {
 	p := g.markPosition(literalAction)
 	if g.shouldExit(p, literalAction) {
@@ -665,6 +722,34 @@ func (g *Grammar) Byte() {
 	}
 
 	a := &parseAction{kind: byteAction, pos: p}
+	g.nb.append(a)
+}
+
+func (g *Grammar) PeekByte(stubs map[byte]func()) {
+	p := g.markPosition(peekByteAction)
+	if g.shouldExit(p, peekByteAction) {
+		return
+	} else if stubs == nil {
+		g.Error(p, "cant call PeekByte() with nil map")
+		return
+	}
+
+	args := make(map[byte]*parseAction, len(stubs))
+	for c, stub := range stubs {
+		if stub == nil {
+			g.Error(p, "cant call PeekByte() with nil function")
+			return
+		}
+
+		r := g.buildStub(peekByteAction, stub)
+
+		if g.err != nil {
+			return
+		}
+
+		args[c] = r.buildSequence(p)
+	}
+	a := &parseAction{kind: peekByteAction, byteSwitch: args, pos: p}
 	g.nb.append(a)
 }
 
@@ -1012,6 +1097,8 @@ func (g *Grammar) Parser() *Parser {
 type parseFunc func(*parserState) bool
 
 type parseAction struct {
+	// this is a 'wide style' variant struct
+
 	kind     string
 	pos      int
 	name     string         // call, capture
@@ -1019,6 +1106,10 @@ type parseAction struct {
 	literals []string
 	ranges   []string
 	bytes    [][]byte
+
+	stringSwitch map[string]*parseAction
+	runeSwitch   map[rune]*parseAction
+	byteSwitch   map[byte]*parseAction
 
 	min      int
 	max      int
@@ -1167,6 +1258,61 @@ func (a *parseAction) buildFunc(g *Grammar) parseFunc {
 					return true
 				}
 			}
+			return false
+		}
+	case peekAction:
+		rules := make(map[string]parseFunc, len(a.stringSwitch))
+		size := 0
+		for i, r := range a.stringSwitch {
+			rules[i] = r.buildFunc(g)
+			if len(i) > size {
+				size = len(i)
+			}
+		}
+		return func(s *parserState) bool {
+			if s.atEnd() {
+				return false
+			}
+			r := s.peekString(size)
+
+			if fn, ok := rules[r]; ok {
+				return fn(s)
+			}
+
+			return false
+		}
+	case peekRuneAction:
+		rules := make(map[rune]parseFunc, len(a.runeSwitch))
+		for i, r := range a.runeSwitch {
+			rules[i] = r.buildFunc(g)
+		}
+		return func(s *parserState) bool {
+			if s.atEnd() {
+				return false
+			}
+			r, _ := s.peekRune()
+
+			if fn, ok := rules[r]; ok {
+				return fn(s)
+			}
+
+			return false
+		}
+	case peekByteAction:
+		rules := make(map[byte]parseFunc, len(a.byteSwitch))
+		for i, r := range a.byteSwitch {
+			rules[i] = r.buildFunc(g)
+		}
+		return func(s *parserState) bool {
+			if s.atEnd() {
+				return false
+			}
+			r := s.peekByte()
+
+			if fn, ok := rules[r]; ok {
+				return fn(s)
+			}
+
 			return false
 		}
 	case rangeAction:
@@ -1462,8 +1608,6 @@ func (s *parserState) startCapture(st *parserState) {
 
 func (s *parserState) mergeCapture(name string, new *parserState) {
 
-	// children := make([]int, new.countSibling)
-
 	nextSibling := new.lastSibling
 	lastSibling := 0
 
@@ -1473,26 +1617,11 @@ func (s *parserState) mergeCapture(name string, new *parserState) {
 		new.nodes[nextSibling].sibling = lastSibling
 		new.nodes[nextSibling].nsibling = i
 
-		//	children[new.countSibling-i-1] = nextSibling
-
 		lastSibling = nextSibling
 		nextSibling = nodeSibling
 	}
 
 	new.lastSibling = lastSibling
-
-	/*
-
-		children2 := make([]int, new.countSibling)
-
-		for j := 0; j < new.countSibling; j++ {
-			children2[j] = lastSibling
-			lastSibling = new.nodes[lastSibling].sibling
-			if children2[j] != new.children[j]  {
-				fmt.Println("bad")
-			}
-		}
-	*/
 
 	node := Node{
 		name:  name,
@@ -1556,6 +1685,13 @@ func (s *parserState) atEnd() bool {
 
 func (s *parserState) peekByte() byte {
 	return s.i.buf[s.offset]
+}
+func (s *parserState) peekString(n int) string {
+	end := s.offset + n
+	if end > s.i.length {
+		end = s.i.length
+	}
+	return s.i.buf[s.offset:end]
 }
 
 func (s *parserState) peekRune() (rune, int) {
