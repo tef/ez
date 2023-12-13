@@ -11,7 +11,7 @@ var JsonParser = ez.BuildParser(func(g *ez.Grammar) {
 	g.Define("document", func() {
 		g.Whitespace()
 		g.Lookahead(func() {
-			g.Literal("{", "[")
+			g.String("{", "[")
 		})
 		g.Call("value")
 		g.Whitespace()
@@ -28,100 +28,100 @@ var JsonParser = ez.BuildParser(func(g *ez.Grammar) {
 			g.Call("number")
 		}, func() {
 			g.Capture("true", func() {
-				g.Literal("true")
+				g.String("true")
 			})
 		}, func() {
 			g.Capture("false", func() {
-				g.Literal("false")
+				g.String("false")
 			})
 		}, func() {
 			g.Capture("null", func() {
-				g.Literal("null")
+				g.String("null")
 			})
 		})
 
 	})
 
 	g.Define("list", func() {
-		g.Literal("[")
+		g.String("[")
 		g.Whitespace()
 		g.Capture("list", func() {
 			g.Optional(func() {
 				g.Call("value")
 				g.Repeat(0, 0, func() {
 					g.Whitespace()
-					g.Literal(",")
+					g.String(",")
 					g.Whitespace()
 					g.Call("value")
 				})
 			})
 		})
-		g.Literal("]")
+		g.String("]")
 
 	})
 
 	g.Define("object", func() {
-		g.Literal("{")
+		g.String("{")
 		g.Whitespace()
 		g.Capture("object", func() {
 			g.Optional(func() {
 				g.Call("string")
 				g.Whitespace()
-				g.Literal(":")
+				g.String(":")
 				g.Whitespace()
 				g.Call("value")
 			})
 			g.Whitespace()
 			g.Repeat(0, 0, func() {
-				g.Literal(",")
+				g.String(",")
 				g.Whitespace()
 				g.Call("string")
 				g.Whitespace()
-				g.Literal(":")
+				g.String(":")
 				g.Whitespace()
 				g.Call("value")
 				g.Whitespace()
 			})
 		})
-		g.Literal("}")
+		g.String("}")
 	})
 
 	g.Define("string", func() {
-		g.Literal("\"")
+		g.String("\"")
 		g.Capture("string", func() {
 			g.Repeat(0, 0, func() {
 				g.Choice(func() {
-					g.Literal("\\u")
+					g.String("\\u")
 					g.Cut()
 					g.Range("0-9", "a-f", "A-F")
 					g.Range("0-9", "a-f", "A-F")
 					g.Range("0-9", "a-f", "A-F")
 					g.Range("0-9", "a-f", "A-F")
 				}, func() {
-					g.Literal("\\")
+					g.String("\\")
 					g.Cut()
-					g.Literal(
+					g.String(
 						"\"", "\\", "/", "b",
 						"f", "n", "r", "t",
 					)
 				}, func() {
 					g.Reject(func() {
-						g.Literal("\\", "\"")
+						g.String("\\", "\"")
 					})
 					g.Rune()
 				})
 			})
 		})
-		g.Literal("\"")
+		g.String("\"")
 	})
 
 	g.Define("number", func() {
 		g.Capture("number", func() {
 			g.Optional(func() {
-				g.Literal("-")
+				g.String("-")
 			})
 			g.Choice(func() {
-				g.Literal("0")
+				g.String("0")
 			}, func() {
 				g.Range("1-9")
 				g.Repeat(0, 0, func() {
@@ -129,15 +129,15 @@ var JsonParser = ez.BuildParser(func(g *ez.Grammar) {
 				})
 			})
 			g.Optional(func() {
-				g.Literal(".")
+				g.String(".")
 				g.Repeat(0, 0, func() {
 					g.Range("0-9")
 				})
 			})
 			g.Optional(func() {
-				g.Literal("e", "E")
+				g.String("e", "E")
 				g.Optional(func() {
-					g.Literal("+", "-")
+					g.String("+", "-")
 					g.Repeat(0, 0, func() {
 						g.Range("0-9")
 					})

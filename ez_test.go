@@ -80,7 +80,7 @@ func TestErrors(t *testing.T) {
 		g.Start = "expr"
 
 		g.Define("expr", func() {})
-		g.Literal("true")
+		g.String("true")
 	})
 
 	if g.err == nil {
@@ -118,7 +118,7 @@ func TestErrors(t *testing.T) {
 
 		g.Define("expr", func() {
 			ro := g.Range("0-9")
-			g.Literal("x")
+			g.String("x")
 			ro.Invert()
 		})
 	})
@@ -180,7 +180,7 @@ func TestErrors(t *testing.T) {
 		g.Start = "expr"
 
 		g.Define("expr", func() {
-			g.Literal("foo")
+			g.String("foo")
 		})
 
 		g.Builder("expr", func(string, []any) (any, error) {
@@ -213,7 +213,7 @@ func TestLogger(t *testing.T) {
 
 		g.Define("expr", func() {
 			g.Print("TEST")
-			g.Literal("TEST")
+			g.String("TEST")
 
 		})
 	})
@@ -250,7 +250,7 @@ func TestLogger(t *testing.T) {
 			})
 		})
 		g.Define("test", func() {
-			g.Literal("TEST")
+			g.String("TEST")
 		})
 	})
 
@@ -292,57 +292,57 @@ func TestParser(t *testing.T) {
 			g.Call("example")
 		})
 		g.Define("example", func() {
-			g.Literal("example")
+			g.String("example")
 		})
 		g.Define("test_choice", func() {
 			g.Choice(func() {
-				g.Literal("a")
+				g.String("a")
 			}, func() {
-				g.Literal("b")
+				g.String("b")
 			}, func() {
-				g.Literal("c")
+				g.String("c")
 			})
 		})
 		g.Define("test_cut", func() {
 			g.Choice(func() {
-				g.Literal("a")
+				g.String("a")
 				g.Cut()
-				g.Literal("1")
+				g.String("1")
 			}, func() {
-				g.Literal("aa")
+				g.String("aa")
 			})
 		})
 		g.Define("test_sequence", func() {
 			g.Sequence(func() {
-				g.Literal("a")
-				g.Literal("b")
-				g.Literal("c")
+				g.String("a")
+				g.String("b")
+				g.String("c")
 			})
 		})
 		g.Define("test_optional", func() {
 			g.Optional(func() {
-				g.Literal("1")
+				g.String("1")
 			})
-			g.Literal("2")
+			g.String("2")
 			g.Optional(func() {
-				g.Literal("3")
+				g.String("3")
 			})
-			g.Literal("4")
+			g.String("4")
 		})
 		g.Define("test_repeat", func() {
 			g.Repeat(0, 0, func() {
-				g.Literal("a")
+				g.String("a")
 			})
 		})
 		g.Define("test_lookahead", func() {
 			g.Lookahead(func() {
-				g.Literal("a")
+				g.String("a")
 			})
 			g.Rune()
 		})
 		g.Define("test_reject", func() {
 			g.Reject(func() {
-				g.Literal("a")
+				g.String("a")
 			})
 			g.Rune()
 		})
@@ -417,7 +417,7 @@ func TestStringMode(t *testing.T) {
 		g.Mode = StringMode()
 		g.Define("expr", func() {
 			g.Whitespace()
-			g.Literal("example")
+			g.String("example")
 			g.Whitespace()
 			g.EndOfFile()
 		})
@@ -440,7 +440,7 @@ func TestStringMode(t *testing.T) {
 		g.Start = "start"
 		g.Define("start", func() {
 			g.Call("test_rune")
-			g.Call("test_literal")
+			g.Call("test_string")
 			g.Call("test_range")
 			g.Call("test_inverted_range")
 			g.Call("test_peek_rune")
@@ -450,8 +450,8 @@ func TestStringMode(t *testing.T) {
 			g.Rune()
 		})
 
-		g.Define("test_literal", func() {
-			g.Literal("example")
+		g.Define("test_string", func() {
+			g.String("example")
 		})
 		g.Define("test_range", func() {
 			g.Range("0", "1-9")
@@ -462,13 +462,13 @@ func TestStringMode(t *testing.T) {
 		g.Define("test_peek_rune", func() {
 			g.PeekRune(map[rune]func(){
 				'1': func() {
-					g.Literal("1")
+					g.String("1")
 				},
 				'2': func() {
-					g.Literal("22")
+					g.String("22")
 				},
 				'3': func() {
-					g.Literal("333")
+					g.String("333")
 				},
 			})
 		})
@@ -477,12 +477,12 @@ func TestStringMode(t *testing.T) {
 	if parser.err != nil {
 		t.Errorf("error defining grammar:\n%v", parser.err)
 	} else {
-		ok = parser.testRule("test_literal",
+		ok = parser.testRule("test_string",
 			[]string{"example"},
 			[]string{"", "bad", "longer example", "example bad"},
 		)
 		if !ok {
-			t.Error("literal test case failed")
+			t.Error("string test case failed")
 		}
 		ok = parser.testRule("test_range",
 			[]string{"0", "1", "2", "3", "4", "5", "6", "7", "8", "9"},
@@ -618,7 +618,7 @@ func TestTextMode(t *testing.T) {
 		g.Mode = TextMode().Tabstop(8)
 		g.Define("expr", func() {
 			g.StartOfLine()
-			g.Literal("example")
+			g.String("example")
 			g.Newline()
 			g.StartOfLine()
 			g.EndOfFile()
@@ -649,19 +649,19 @@ func TestCapture(t *testing.T) {
 		g.Start = "start"
 		g.Define("start", func() {
 			g.Capture("main", func() {
-				g.Literal("A")
+				g.String("A")
 				g.Choice(func() {
 					g.Capture("bcd", func() {
-						g.Literal("BCD")
+						g.String("BCD")
 					})
 
 				}, func() {
 					g.Capture("b", func() {
 						g.Capture("b2", func() {
-							g.Literal("B")
+							g.String("B")
 						})
 						g.Capture("c", func() {
-							g.Literal("C")
+							g.String("C")
 						})
 					})
 				})
@@ -677,13 +677,13 @@ func TestCapture(t *testing.T) {
 			[]string{""},
 		)
 		if !ok {
-			t.Error("literal test case failed")
+			t.Error("string test case failed")
 		}
 
 		tree, err = parser.ParseTree("ABC")
 
 		if err != nil {
-			t.Error("literal test case failed")
+			t.Error("string test case failed")
 		} else {
 			t.Log("ABC parsed")
 			tree.Walk(func(n *Node) {
@@ -697,7 +697,7 @@ func TestCapture(t *testing.T) {
 		tree, err = parser.ParseTree("ABCD")
 
 		if err != nil {
-			t.Error("literal test case failed")
+			t.Error("string test case failed")
 		} else {
 			t.Log("ABCD parsed")
 			tree.Walk(func(n *Node) {
@@ -712,7 +712,7 @@ func TestCapture(t *testing.T) {
 		g.Start = "start"
 		g.Define("start", func() {
 			g.Capture("main", func() {
-				g.Literal("A")
+				g.String("A")
 			})
 		})
 		g.Builder("main", func(s string, args []any) (any, error) {
@@ -728,13 +728,13 @@ func TestCapture(t *testing.T) {
 			[]string{""},
 		)
 		if !ok {
-			t.Error("literal test case failed")
+			t.Error("string test case failed")
 		}
 
 		tree, err = parser.ParseTree("A")
 
 		if err != nil {
-			t.Error("literal test case failed")
+			t.Error("string test case failed")
 		} else {
 			t.Log("A parsed")
 			tree.Walk(func(n *Node) {
@@ -767,7 +767,7 @@ func BenchmarkParser(b *testing.B) {
 
 	parser = BuildParser(func(g *Grammar) {
 		g.Define("expr", func() {
-			g.Literal("x")
+			g.String("x")
 			g.Optional(func() {
 				g.Call("expr")
 			})

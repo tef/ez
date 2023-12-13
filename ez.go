@@ -33,7 +33,7 @@ const (
 	peekAction       = "Peek"
 	runeAction       = "Rune"
 	peekRuneAction   = "PeekRune"
-	literalAction    = "Literal"
+	stringAction     = "String"
 	rangeAction      = "Range"
 	whitespaceAction = "Whitespace"
 	newlineAction    = "Newline"
@@ -90,7 +90,7 @@ func BinaryMode() ParserMode {
 	return &binaryMode{
 		actionsDisabled: []string{
 			runeAction,
-			literalAction,
+			stringAction,
 			whitespaceAction,
 			newlineAction,
 			partialTabAction,
@@ -673,9 +673,9 @@ func (g *Grammar) PeekRune(stubs map[rune]func()) {
 	a := &parseAction{kind: peekRuneAction, runeSwitch: args, pos: p}
 	g.nb.append(a)
 }
-func (g *Grammar) Literal(s ...string) {
-	p := g.markPosition(literalAction)
-	if g.shouldExit(p, literalAction) {
+func (g *Grammar) String(s ...string) {
+	p := g.markPosition(stringAction)
+	if g.shouldExit(p, stringAction) {
 		return
 	}
 	if len(s) == 0 {
@@ -683,7 +683,7 @@ func (g *Grammar) Literal(s ...string) {
 		return
 	}
 
-	a := &parseAction{kind: literalAction, literals: s, pos: p}
+	a := &parseAction{kind: stringAction, strings: s, pos: p}
 	g.nb.append(a)
 }
 
@@ -1110,13 +1110,13 @@ type parseFunc func(*parserState) bool
 type parseAction struct {
 	// this is a 'wide style' variant struct
 
-	kind     string
-	pos      int
-	name     string         // call, capture
-	args     []*parseAction // choice, seq, cap
-	literals []string
-	ranges   []string
-	bytes    [][]byte
+	kind    string
+	pos     int
+	name    string         // call, capture
+	args    []*parseAction // choice, seq, cap
+	strings []string
+	ranges  []string
+	bytes   [][]byte
 
 	stringSwitch map[string]*parseAction
 	runeSwitch   map[rune]*parseAction
@@ -1253,9 +1253,9 @@ func (a *parseAction) buildFunc(g *Grammar) parseFunc {
 			s.advance(1)
 			return true
 		}
-	case literalAction:
+	case stringAction:
 		return func(s *parserState) bool {
-			for _, v := range a.literals {
+			for _, v := range a.strings {
 				if s.acceptString(v) {
 					return true
 				}
