@@ -10,14 +10,10 @@ var JsonParser = ez.BuildParser(func(g *ez.Grammar) {
 
 	g.Define("document", func() {
 		g.Whitespace()
-		g.PeekRune(map[rune]func(){
-			'[': func() {
-				g.Call("list")
-			},
-			'{': func() {
-				g.Call("object")
-			},
+		g.Lookahead(func() {
+			g.Literal("{", "[")
 		})
+		g.Call("value")
 		g.Whitespace()
 	})
 

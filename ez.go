@@ -1035,6 +1035,16 @@ func (g *Grammar) Check() error {
 		}
 	}
 
+	if len(g.builders) > 0 {
+		for name, pos := range g.capturePos {
+			if _, ok := g.builderPos[name]; !ok {
+				for _, p := range pos {
+					g.Errorf(p, "missing builder %q for capture", name)
+				}
+			}
+		}
+	}
+
 	if g.Start == "" {
 		g.Error(g.pos, "starting rule undefined")
 	} else if _, ok := g.nameIdx[g.Start]; !ok {

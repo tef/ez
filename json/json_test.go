@@ -8,7 +8,7 @@ import (
 
 func TestJson(t *testing.T) {
 	if JsonParser.Err() != nil {
-		t.Error("error", JsonParser.Err())
+		t.Fatal("error", JsonParser.Err())
 	}
 
 	tree, err := JsonParser.ParseTree("[1,2,3]")
