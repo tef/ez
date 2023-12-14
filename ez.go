@@ -277,8 +277,6 @@ type Grammar struct {
 	// list of pos for each name
 	posInfo    []*filePosition
 	rulePos    []int // posInfo[rulePos[ruleNum]]
-	capturePos map[string][]int
-	builderPos map[string]int
 
 	pos    int // posInfo[pos] for grammar define
 	err    error
@@ -445,6 +443,8 @@ type G struct {
 	configmode GrammarMode
 
 	callPos    map[string][]int
+	capturePos map[string][]int
+	builderPos map[string]int
 
 	nb *nodeBuilder
 }
@@ -1106,11 +1106,11 @@ func (g *G) Builder(name string, stub BuilderFunc) {
 	}
 
 	if _, ok := g.grammar.builders[name]; ok {
-		oldPos := g.grammar.builderPos[name]
+		oldPos := g.builderPos[name]
 		g.Errorf(p, "cant redefine %q, already defined at %v", name, oldPos)
 		return
 	}
-	g.grammar.builderPos[name] = p
+	g.builderPos[name] = p
 	g.grammar.builders[name] = stub
 }
 
