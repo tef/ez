@@ -123,91 +123,58 @@ func BuildParser(stub func(*G)) *Parser {
 //  	Grammar Modes
 //
 
-type ParserMode interface {
-	name() string
-	check() bool
-	actionAllowed(string) bool
-	getColumnParser() columnParserFunc
-	getWhitespace() []string
-	getNewlines() []string
-	getTabstop() int
+type GrammarMode interface {
+	parserConfig() *parserConfig
+}
+
+type parserConfig struct {
+	name            string
+	actionsDisabled []string
+	columnParser    columnParserFunc
+	whitespace      []string
+	newlines        []string
+	tabstop         int
+}
+
+func (c *parserConfig) actionAllowed(s string) bool {
+	for _, v := range c.actionsDisabled {
+		if v == s {
+			return false
+		}
+	}
+	return true
 }
 
 type binaryMode struct {
 	actionsDisabled []string
 }
 
-func (m *binaryMode) name() string {
-	return "binary mode"
-}
-
-func (m *binaryMode) getColumnParser() columnParserFunc {
-	return nil
-}
-
-func (m *binaryMode) actionAllowed(s string) bool {
-	for _, v := range m.actionsDisabled {
-		if v == s {
-			return false
-		}
+func (m *binaryMode) parserConfig() *parserConfig {
+	return &parserConfig{
+		name:            "binary mode",
+		actionsDisabled: m.actionsDisabled,
+		columnParser:    nil,
+		whitespace:      []string{},
+		newlines:        []string{},
+		tabstop:         0,
 	}
-	return true
-}
-
-func (m *binaryMode) check() bool {
-	return true
-}
-
-func (m *binaryMode) getNewlines() []string {
-	return []string{}
-}
-
-func (m *binaryMode) getWhitespace() []string {
-	return []string{}
-}
-
-func (m *binaryMode) getTabstop() int {
-	return 0
 }
 
 type stringMode struct {
-	whitespace []string
-	// Tab
+	whitespace      []string
 	newline         []string
 	actionsDisabled []string
 }
 
-func (m *stringMode) getColumnParser() columnParserFunc {
-	return nil
-}
-
-func (m *stringMode) name() string {
-	return "string mode"
-}
-
-func (m *stringMode) actionAllowed(s string) bool {
-	for _, v := range m.actionsDisabled {
-		if v == s {
-			return false
-		}
+func (m *stringMode) parserConfig() *parserConfig {
+	return &parserConfig{
+		name:            "string mode",
+		actionsDisabled: m.actionsDisabled,
+		columnParser:    nil,
+		whitespace:      m.whitespace,
+		newlines:        m.newline,
+		tabstop:         0,
 	}
-	return true
-}
-
-func (m *stringMode) check() bool {
-	return true
-}
-
-func (m *stringMode) getNewlines() []string {
-	return m.newline
-}
-
-func (m *stringMode) getWhitespace() []string {
-	return m.whitespace
-}
-
-func (m *stringMode) getTabstop() int {
-	return 0
 }
 
 type textMode struct {
@@ -217,41 +184,20 @@ type textMode struct {
 	actionsDisabled []string
 }
 
+func (m *textMode) parserConfig() *parserConfig {
+	return &parserConfig{
+		name:            "text mode",
+		actionsDisabled: m.actionsDisabled,
+		columnParser:    textModeColumnParser,
+		whitespace:      m.whitespace,
+		newlines:        m.newline,
+		tabstop:         m.tabstop,
+	}
+}
+
 func (m *textMode) Tabstop(t int) *textMode {
 	m.tabstop = t
 	return m
-}
-
-func (m *textMode) getColumnParser() columnParserFunc {
-	return textModeColumnParser
-}
-
-func (m *textMode) name() string {
-	return "text mode"
-}
-
-func (m *textMode) actionAllowed(s string) bool {
-	for _, v := range m.actionsDisabled {
-		if v == s {
-			return false
-		}
-	}
-	return true
-}
-func (m *textMode) check() bool {
-	return true
-}
-
-func (m *textMode) getNewlines() []string {
-	return m.newline
-}
-
-func (m *textMode) getWhitespace() []string {
-	return m.whitespace
-}
-
-func (m *textMode) getTabstop() int {
-	return m.tabstop
 }
 
 // ---
@@ -300,8 +246,8 @@ type parseAction struct {
 }
 
 type Grammar struct {
+	config  *parserConfig
 	start   int
-	mode    ParserMode
 	logFunc func(string, ...any)
 
 	rules    []*parseAction
@@ -379,7 +325,6 @@ func buildGrammar(stub func(*G)) *Grammar {
 
 	stub(bigG)
 
-	g.mode = bigG.Mode
 	if bigG.Start == "" && len(g.names) == 1 {
 		bigG.Start = g.names[0]
 	}
@@ -395,10 +340,6 @@ func buildGrammar(stub func(*G)) *Grammar {
 func (bg *G) check() error {
 	g := bg.grammar
 	if g.err != nil {
-		return g.err
-	}
-	if !bg.Mode.check() {
-		bg.Error(g.pos, "misconfigured mode")
 		return g.err
 	}
 
@@ -512,14 +453,24 @@ type G struct {
 	grammar *Grammar
 
 	Start   string
-	Mode    ParserMode
 	LogFunc func(string, ...any)
+
+	Mode       GrammarMode
+	configmode GrammarMode
 
 	nb *nodeBuilder
 }
 
 func (g *G) err() error {
 	return g.grammar.err
+}
+
+func (g *G) parserConfig() *parserConfig {
+	if g.configmode == nil {
+		g.configmode = g.Mode
+		g.grammar.config = g.configmode.parserConfig()
+	}
+	return g.grammar.config
 }
 
 func (g *G) Error(pos int, args ...any) {
@@ -587,8 +538,8 @@ func (g *G) shouldExit(pos int, kind string) bool {
 		g.Error(pos, "no Mode set")
 		return true
 	}
-	if !g.Mode.actionAllowed(kind) {
-		g.Errorf(pos, "cannot call %v() in %v", kind, g.Mode.name())
+	if config := g.parserConfig(); !config.actionAllowed(kind) {
+		g.Errorf(pos, "cannot call %v() in %v", kind, config.name)
 		return true
 	}
 	return false
@@ -980,7 +931,7 @@ func (g *G) invertRange(rangePos int, a *parseAction) RangeOptions {
 		g: g,
 		p: p,
 	}
-	if g.shouldExit(p, a.kind) || a == nil {
+	if a == nil || g.shouldExit(p, a.kind) {
 		return ro
 	}
 
@@ -1474,7 +1425,7 @@ func buildAction(g *Grammar, a *parseAction) parseFunc {
 	// case dedentAction
 
 	case whitespaceAction:
-		ws := g.mode.getWhitespace()
+		ws := g.config.whitespace
 		return func(i *parserInput, s *parserState) bool {
 			for {
 				if !acceptAny(i, s, ws) {
@@ -1484,7 +1435,7 @@ func buildAction(g *Grammar, a *parseAction) parseFunc {
 			return true
 		}
 	case endOfLineAction, newlineAction:
-		nl := g.mode.getNewlines()
+		nl := g.config.newlines
 		return func(i *parserInput, s *parserState) bool {
 			return acceptAny(i, s, nl)
 		}
@@ -1831,13 +1782,13 @@ func (p *Parser) Err() error {
 }
 
 func (p *Parser) newParserInput(s string) *parserInput {
-	mode := p.grammar.mode
+	config := p.grammar.config
 	i := &parserInput{
 		rules:        p.rules,
 		buf:          s,
 		length:       len(s),
-		columnParser: mode.getColumnParser(),
-		tabstop:      mode.getTabstop(),
+		columnParser: config.columnParser,
+		tabstop:      config.tabstop,
 	}
 	return i
 }
