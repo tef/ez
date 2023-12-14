@@ -4,7 +4,7 @@ import (
 	"ez"
 )
 
-var JsonParser = ez.BuildParser(func(g *ez.Grammar) {
+var JsonParser = ez.BuildParser(func(g *ez.G) {
 	g.Mode = ez.StringMode()
 	g.Start = "document"
 

@@ -103,8 +103,8 @@ func BinaryMode() *binaryMode {
 	}
 }
 
-func BuildGrammar(stub func(*Grammar)) *Grammar {
-	g := &Grammar{}
+func BuildGrammar(stub func(*G)) *G {
+	g := &G{}
 	g.LogFunc = Printf
 	g.pos = g.markPosition(grammarAction)
 
@@ -115,13 +115,13 @@ func BuildGrammar(stub func(*Grammar)) *Grammar {
 
 	err := g.buildGrammar(stub)
 	if err != nil {
-		return &Grammar{err: err}
+		return &G{err: err}
 	}
 	return g
 }
 
-func BuildParser(stub func(*Grammar)) *Parser {
-	g := &Grammar{}
+func BuildParser(stub func(*G)) *Parser {
+	g := &G{}
 	g.LogFunc = Printf
 	g.pos = g.markPosition(grammarAction)
 	if stub == nil {
@@ -280,7 +280,7 @@ type filePosition struct {
 }
 
 type grammarError struct {
-	g       *Grammar
+	g       *G
 	pos     int
 	message string
 	fatal   bool
@@ -322,7 +322,7 @@ func (b *nodeBuilder) inRule() bool {
 
 type BuilderFunc func(string, []any) (any, error)
 
-type Grammar struct {
+type G struct {
 	Start   string
 	Mode    ParserMode
 	LogFunc func(string, ...any)
@@ -348,18 +348,18 @@ type Grammar struct {
 	err    error
 }
 
-func (g *Grammar) Err() error {
+func (g *G) Err() error {
 	return g.err
 }
 
-func (g *Grammar) Errors() []error {
+func (g *G) Errors() []error {
 	if g.errors == nil {
 		return []error{}
 	}
 	return g.errors
 }
 
-func (g *Grammar) Error(pos int, args ...any) {
+func (g *G) Error(pos int, args ...any) {
 	msg := fmt.Sprint(args...)
 	err := &grammarError{
 		g:       g,
@@ -372,7 +372,7 @@ func (g *Grammar) Error(pos int, args ...any) {
 	g.errors = append(g.errors, err)
 }
 
-func (g *Grammar) Errorf(pos int, s string, args ...any) {
+func (g *G) Errorf(pos int, s string, args ...any) {
 	msg := fmt.Sprintf(s, args...)
 	err := &grammarError{
 		g:       g,
@@ -385,7 +385,7 @@ func (g *Grammar) Errorf(pos int, s string, args ...any) {
 	g.errors = append(g.errors, err)
 }
 
-func (g *Grammar) Warn(pos int, args ...any) {
+func (g *G) Warn(pos int, args ...any) {
 	msg := fmt.Sprint(args...)
 	err := &grammarError{
 		g:       g,
@@ -395,7 +395,7 @@ func (g *Grammar) Warn(pos int, args ...any) {
 	g.errors = append(g.errors, err)
 }
 
-func (g *Grammar) Warnf(pos int, s string, args ...any) {
+func (g *G) Warnf(pos int, s string, args ...any) {
 	msg := fmt.Sprintf(s, args...)
 	err := &grammarError{
 		g:       g,
@@ -405,7 +405,7 @@ func (g *Grammar) Warnf(pos int, s string, args ...any) {
 	g.errors = append(g.errors, err)
 }
 
-func (g *Grammar) markPosition(actionKind string) int {
+func (g *G) markPosition(actionKind string) int {
 	_, file, no, ok := runtime.Caller(2)
 	if !ok {
 		return -1
@@ -423,7 +423,7 @@ func (g *Grammar) markPosition(actionKind string) int {
 	return p
 }
 
-func (g *Grammar) shouldExit(pos int, kind string) bool {
+func (g *G) shouldExit(pos int, kind string) bool {
 	if g.err != nil {
 		return true
 	}
@@ -447,7 +447,7 @@ func (g *Grammar) shouldExit(pos int, kind string) bool {
 
 }
 
-func (g *Grammar) buildStub(kind string, stub func()) *nodeBuilder {
+func (g *G) buildStub(kind string, stub func()) *nodeBuilder {
 	var rule *int
 	oldNb := g.nb
 	if oldNb != nil {
@@ -460,7 +460,7 @@ func (g *Grammar) buildStub(kind string, stub func()) *nodeBuilder {
 	return newNb
 }
 
-func (g *Grammar) buildRule(rule int, stub func()) *nodeBuilder {
+func (g *G) buildRule(rule int, stub func()) *nodeBuilder {
 	oldNb := g.nb
 	newNb := &nodeBuilder{kind: defineAction, rule: &rule}
 	g.nb = newNb
@@ -469,7 +469,7 @@ func (g *Grammar) buildRule(rule int, stub func()) *nodeBuilder {
 	return newNb
 }
 
-func (g *Grammar) buildGrammar(stub func(*Grammar)) error {
+func (g *G) buildGrammar(stub func(*G)) error {
 	if g.nb != nil || g.names != nil {
 		return errors.New("use empty grammar")
 	}
@@ -487,7 +487,7 @@ func (g *Grammar) buildGrammar(stub func(*Grammar)) error {
 	return g.Check()
 }
 
-func (g *Grammar) formatPosition(p *filePosition) string {
+func (g *G) formatPosition(p *filePosition) string {
 	if p.rule != nil {
 		return fmt.Sprintf("%v:%v:%v", p.file, p.line, g.names[*p.rule])
 	} else {
@@ -496,7 +496,7 @@ func (g *Grammar) formatPosition(p *filePosition) string {
 
 }
 
-func (g *Grammar) Define(name string, stub func()) {
+func (g *G) Define(name string, stub func()) {
 	p := g.markPosition(defineAction)
 	if g.err != nil {
 		return
@@ -526,7 +526,7 @@ func (g *Grammar) Define(name string, stub func()) {
 	g.rules = append(g.rules, r.buildSequence(p))
 }
 
-func (g *Grammar) Print(args ...any) {
+func (g *G) Print(args ...any) {
 	p := g.markPosition(printAction)
 	if g.shouldExit(p, printAction) {
 		return
@@ -534,7 +534,7 @@ func (g *Grammar) Print(args ...any) {
 	a := &parseAction{kind: printAction, message: args, pos: p}
 	g.nb.append(a)
 }
-func (g *Grammar) Trace(stub func()) {
+func (g *G) Trace(stub func()) {
 	p := g.markPosition(traceAction)
 	if g.shouldExit(p, traceAction) {
 		return
@@ -551,7 +551,7 @@ func (g *Grammar) Trace(stub func()) {
 	g.nb.append(a)
 }
 
-func (g *Grammar) Whitespace() {
+func (g *G) Whitespace() {
 	p := g.markPosition(whitespaceAction)
 	if g.shouldExit(p, whitespaceAction) {
 		return
@@ -560,7 +560,7 @@ func (g *Grammar) Whitespace() {
 	g.nb.append(a)
 }
 
-func (g *Grammar) Newline() {
+func (g *G) Newline() {
 	p := g.markPosition(newlineAction)
 	if g.shouldExit(p, newlineAction) {
 		return
@@ -569,7 +569,7 @@ func (g *Grammar) Newline() {
 	g.nb.append(a)
 }
 
-func (g *Grammar) StartOfFile() {
+func (g *G) StartOfFile() {
 	p := g.markPosition(startOfFileAction)
 	if g.shouldExit(p, startOfFileAction) {
 		return
@@ -579,7 +579,7 @@ func (g *Grammar) StartOfFile() {
 	g.nb.append(a)
 }
 
-func (g *Grammar) EndOfFile() {
+func (g *G) EndOfFile() {
 	p := g.markPosition(endOfFileAction)
 	if g.shouldExit(p, endOfFileAction) {
 		return
@@ -589,7 +589,7 @@ func (g *Grammar) EndOfFile() {
 	g.nb.append(a)
 }
 
-func (g *Grammar) StartOfLine() {
+func (g *G) StartOfLine() {
 	p := g.markPosition(startOfLineAction)
 	if g.shouldExit(p, startOfLineAction) {
 		return
@@ -599,7 +599,7 @@ func (g *Grammar) StartOfLine() {
 	g.nb.append(a)
 }
 
-func (g *Grammar) EndOfLine() {
+func (g *G) EndOfLine() {
 	p := g.markPosition(endOfLineAction)
 	if g.shouldExit(p, endOfLineAction) {
 		return
@@ -609,7 +609,7 @@ func (g *Grammar) EndOfLine() {
 	g.nb.append(a)
 }
 
-func (g *Grammar) Rune() {
+func (g *G) Rune() {
 	p := g.markPosition(runeAction)
 	if g.shouldExit(p, runeAction) {
 		return
@@ -619,7 +619,7 @@ func (g *Grammar) Rune() {
 	g.nb.append(a)
 }
 
-func (g *Grammar) PeekString(stubs map[string]func()) {
+func (g *G) PeekString(stubs map[string]func()) {
 	p := g.markPosition(peekStringAction)
 	if g.shouldExit(p, peekStringAction) {
 		return
@@ -646,7 +646,7 @@ func (g *Grammar) PeekString(stubs map[string]func()) {
 	a := &parseAction{kind: peekStringAction, stringSwitch: args, pos: p}
 	g.nb.append(a)
 }
-func (g *Grammar) PeekRune(stubs map[rune]func()) {
+func (g *G) PeekRune(stubs map[rune]func()) {
 	p := g.markPosition(peekRuneAction)
 	if g.shouldExit(p, peekRuneAction) {
 		return
@@ -673,7 +673,7 @@ func (g *Grammar) PeekRune(stubs map[rune]func()) {
 	a := &parseAction{kind: peekRuneAction, runeSwitch: args, pos: p}
 	g.nb.append(a)
 }
-func (g *Grammar) String(s ...string) {
+func (g *G) String(s ...string) {
 	p := g.markPosition(stringAction)
 	if g.shouldExit(p, stringAction) {
 		return
@@ -693,7 +693,7 @@ func (g *Grammar) String(s ...string) {
 	g.nb.append(a)
 }
 
-func (g *Grammar) Range(s ...string) RangeOptions {
+func (g *G) Range(s ...string) RangeOptions {
 	p := g.markPosition(rangeAction)
 	ro := RangeOptions{
 		g: g,
@@ -722,7 +722,7 @@ func (g *Grammar) Range(s ...string) RangeOptions {
 	return ro
 }
 
-func (g *Grammar) Byte() {
+func (g *G) Byte() {
 	p := g.markPosition(byteAction)
 	if g.shouldExit(p, byteAction) {
 		return
@@ -732,7 +732,7 @@ func (g *Grammar) Byte() {
 	g.nb.append(a)
 }
 
-func (g *Grammar) PeekByte(stubs map[byte]func()) {
+func (g *G) PeekByte(stubs map[byte]func()) {
 	p := g.markPosition(peekByteAction)
 	if g.shouldExit(p, peekByteAction) {
 		return
@@ -760,7 +760,7 @@ func (g *Grammar) PeekByte(stubs map[byte]func()) {
 	g.nb.append(a)
 }
 
-func (g *Grammar) ByteString(s ...string) {
+func (g *G) ByteString(s ...string) {
 	p := g.markPosition(byteStringAction)
 	if g.shouldExit(p, byteStringAction) {
 		return
@@ -790,7 +790,7 @@ func (g *Grammar) ByteString(s ...string) {
 	g.nb.append(a)
 }
 
-func (g *Grammar) Bytes(s ...[]byte) {
+func (g *G) Bytes(s ...[]byte) {
 	p := g.markPosition(byteListAction)
 	if g.shouldExit(p, byteListAction) {
 		return
@@ -804,7 +804,7 @@ func (g *Grammar) Bytes(s ...[]byte) {
 	g.nb.append(a)
 }
 
-func (g *Grammar) ByteRange(s ...string) RangeOptions {
+func (g *G) ByteRange(s ...string) RangeOptions {
 	p := g.markPosition(byteRangeAction)
 	ro := RangeOptions{
 		g: g,
@@ -834,7 +834,7 @@ func (g *Grammar) ByteRange(s ...string) RangeOptions {
 }
 
 type RangeOptions struct {
-	g *Grammar
+	g *G
 	a *parseAction
 	p int
 }
@@ -843,7 +843,7 @@ func (ro RangeOptions) Invert() RangeOptions {
 	return ro.g.invertRange(ro.p, ro.a)
 }
 
-func (g *Grammar) invertRange(rangePos int, a *parseAction) RangeOptions {
+func (g *G) invertRange(rangePos int, a *parseAction) RangeOptions {
 	p := g.markPosition(rangeAction)
 	ro := RangeOptions{
 		g: g,
@@ -862,7 +862,7 @@ func (g *Grammar) invertRange(rangePos int, a *parseAction) RangeOptions {
 	return ro
 }
 
-func (g *Grammar) Call(name string) {
+func (g *G) Call(name string) {
 	p := g.markPosition(callAction)
 	if g.shouldExit(p, callAction) {
 		return
@@ -872,7 +872,7 @@ func (g *Grammar) Call(name string) {
 	g.nb.append(a)
 }
 
-func (g *Grammar) Sequence(stub func()) {
+func (g *G) Sequence(stub func()) {
 	p := g.markPosition(sequenceAction)
 	if g.shouldExit(p, sequenceAction) {
 		return
@@ -890,7 +890,7 @@ func (g *Grammar) Sequence(stub func()) {
 	g.nb.append(a)
 }
 
-func (g *Grammar) Capture(name string, stub func()) {
+func (g *G) Capture(name string, stub func()) {
 	p := g.markPosition(sequenceAction)
 	if g.shouldExit(p, captureAction) {
 		return
@@ -910,7 +910,7 @@ func (g *Grammar) Capture(name string, stub func()) {
 	g.nb.append(a)
 }
 
-func (g *Grammar) Cut() {
+func (g *G) Cut() {
 	p := g.markPosition(cutAction)
 	if g.shouldExit(p, cutAction) {
 		return
@@ -924,7 +924,7 @@ func (g *Grammar) Cut() {
 	g.nb.append(a)
 }
 
-func (g *Grammar) Choice(options ...func()) {
+func (g *G) Choice(options ...func()) {
 	p := g.markPosition(choiceAction)
 	if g.shouldExit(p, choiceAction) {
 		return
@@ -952,7 +952,7 @@ func (g *Grammar) Choice(options ...func()) {
 	g.nb.append(a)
 }
 
-func (g *Grammar) Optional(stub func()) {
+func (g *G) Optional(stub func()) {
 	p := g.markPosition(optionalAction)
 	if g.shouldExit(p, optionalAction) {
 		return
@@ -968,7 +968,7 @@ func (g *Grammar) Optional(stub func()) {
 	g.nb.append(a)
 }
 
-func (g *Grammar) Lookahead(stub func()) {
+func (g *G) Lookahead(stub func()) {
 	p := g.markPosition(lookaheadAction)
 	if g.shouldExit(p, lookaheadAction) {
 		return
@@ -984,7 +984,7 @@ func (g *Grammar) Lookahead(stub func()) {
 	g.nb.append(a)
 }
 
-func (g *Grammar) Reject(stub func()) {
+func (g *G) Reject(stub func()) {
 	p := g.markPosition(rejectAction)
 	if g.shouldExit(p, rejectAction) {
 		return
@@ -1000,7 +1000,7 @@ func (g *Grammar) Reject(stub func()) {
 	g.nb.append(a)
 }
 
-func (g *Grammar) Repeat(min_t int, max_t int, stub func()) {
+func (g *G) Repeat(min_t int, max_t int, stub func()) {
 	p := g.markPosition(repeatAction)
 	if g.shouldExit(p, repeatAction) {
 		return
@@ -1018,7 +1018,7 @@ func (g *Grammar) Repeat(min_t int, max_t int, stub func()) {
 	g.nb.append(a)
 }
 
-func (g *Grammar) Check() error {
+func (g *G) Check() error {
 	if g.err != nil {
 		return g.err
 	}
@@ -1072,7 +1072,7 @@ func (g *Grammar) Check() error {
 	return g.err
 }
 
-func (g *Grammar) Builder(name string, stub BuilderFunc) {
+func (g *G) Builder(name string, stub BuilderFunc) {
 	p := g.markPosition(builderAction)
 	if g.err != nil {
 		return
@@ -1095,7 +1095,7 @@ func (g *Grammar) Builder(name string, stub BuilderFunc) {
 	g.builders[name] = stub
 }
 
-func (g *Grammar) Parser() *Parser {
+func (g *G) Parser() *Parser {
 	if g.Check() != nil {
 		p := &Parser{err: g.err}
 		return p
@@ -1145,7 +1145,7 @@ type parseAction struct {
 	message  []any
 }
 
-func (a *parseAction) buildFunc(g *Grammar) parseFunc {
+func (a *parseAction) buildFunc(g *G) parseFunc {
 	if a == nil {
 		// when a func() stub has no rules
 		return func(s *parserState) bool {
@@ -1781,7 +1781,7 @@ type Parser struct {
 	rules    []parseFunc
 	start    int
 	builders map[string]BuilderFunc
-	grammar  *Grammar
+	grammar  *G
 	err      error
 }
 

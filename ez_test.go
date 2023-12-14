@@ -9,11 +9,11 @@ import (
 // t.Fatal(...) FatalF,  mark fail, exit
 
 func TestErrors(t *testing.T) {
-	var g *Grammar
+	var g *G
 
 	// grammars need a start and one rule
 
-	g = BuildGrammar(func(g *Grammar) {})
+	g = BuildGrammar(func(g *G) {})
 	if g.err == nil {
 		t.Error("empty grammar should raise error")
 	} else {
@@ -21,7 +21,7 @@ func TestErrors(t *testing.T) {
 	}
 
 	// start rule must exist
-	g = BuildGrammar(func(g *Grammar) {
+	g = BuildGrammar(func(g *G) {
 		g.Start = "missing"
 	})
 	if g.err == nil {
@@ -31,7 +31,7 @@ func TestErrors(t *testing.T) {
 	}
 
 	// all called rules must be defined
-	g = BuildGrammar(func(g *Grammar) {
+	g = BuildGrammar(func(g *G) {
 		g.Start = "expr"
 
 		g.Define("expr", func() {
@@ -45,7 +45,7 @@ func TestErrors(t *testing.T) {
 	}
 
 	// all defined rules must be called
-	g = BuildGrammar(func(g *Grammar) {
+	g = BuildGrammar(func(g *G) {
 		g.Start = "expr"
 
 		g.Define("expr", func() {
@@ -61,7 +61,7 @@ func TestErrors(t *testing.T) {
 	}
 
 	// nested defines should fail
-	g = BuildGrammar(func(g *Grammar) {
+	g = BuildGrammar(func(g *G) {
 		g.Start = "expr"
 
 		g.Define("expr", func() {
@@ -76,7 +76,7 @@ func TestErrors(t *testing.T) {
 		t.Logf("test grammar raised error:\n %v", g.err)
 	}
 	// operators outside defines should fail
-	g = BuildGrammar(func(g *Grammar) {
+	g = BuildGrammar(func(g *G) {
 		g.Start = "expr"
 
 		g.Define("expr", func() {})
@@ -90,7 +90,7 @@ func TestErrors(t *testing.T) {
 	}
 
 	// calling builders outside should fail
-	g = BuildGrammar(func(g *Grammar) {
+	g = BuildGrammar(func(g *G) {
 		g.Start = "expr"
 
 		g.Define("expr", func() {})
@@ -103,7 +103,7 @@ func TestErrors(t *testing.T) {
 		t.Logf("test grammar raised error:\n %v", g.err)
 	}
 	// calling builders outside should fail
-	g = &Grammar{}
+	g = &G{}
 	g.Define("expr2", func() {})
 
 	if g.err == nil {
@@ -113,7 +113,7 @@ func TestErrors(t *testing.T) {
 	}
 
 	// invert must be called after Range
-	g = BuildGrammar(func(g *Grammar) {
+	g = BuildGrammar(func(g *G) {
 		g.Start = "expr"
 
 		g.Define("expr", func() {
@@ -130,7 +130,7 @@ func TestErrors(t *testing.T) {
 	}
 
 	// range must be sensible
-	g = BuildGrammar(func(g *Grammar) {
+	g = BuildGrammar(func(g *G) {
 		g.Start = "expr"
 
 		g.Define("expr", func() {
@@ -145,7 +145,7 @@ func TestErrors(t *testing.T) {
 	}
 
 	// can't call whitespace inside Binary Mode
-	g = BuildGrammar(func(g *Grammar) {
+	g = BuildGrammar(func(g *G) {
 		g.Mode = BinaryMode()
 		g.Start = "expr"
 
@@ -161,7 +161,7 @@ func TestErrors(t *testing.T) {
 	}
 
 	// can't call byte inside text Mode
-	g = BuildGrammar(func(g *Grammar) {
+	g = BuildGrammar(func(g *G) {
 		g.Start = "expr"
 
 		g.Define("expr", func() {
@@ -176,7 +176,7 @@ func TestErrors(t *testing.T) {
 	}
 
 	// can't call ByteString() with rune > 255
-	g = BuildGrammar(func(g *Grammar) {
+	g = BuildGrammar(func(g *G) {
 		g.Mode = BinaryMode()
 		g.Start = "expr"
 
@@ -191,7 +191,7 @@ func TestErrors(t *testing.T) {
 		t.Logf("test grammar raised error:\n %v", g.err)
 	}
 	// can't call String() with nonrune
-	g = BuildGrammar(func(g *Grammar) {
+	g = BuildGrammar(func(g *G) {
 		g.Define("test", func() {
 			g.String("\xFF")
 		})
@@ -204,7 +204,7 @@ func TestErrors(t *testing.T) {
 	}
 
 	// missing capture should raise error for builder
-	g = BuildGrammar(func(g *Grammar) {
+	g = BuildGrammar(func(g *G) {
 		g.Start = "expr"
 
 		g.Define("expr", func() {
@@ -231,7 +231,7 @@ func TestLogger(t *testing.T) {
 
 	logMessages = 0
 
-	parser = BuildParser(func(g *Grammar) {
+	parser = BuildParser(func(g *G) {
 		g.Start = "expr"
 
 		g.LogFunc = func(f string, o ...any) {
@@ -264,7 +264,7 @@ func TestLogger(t *testing.T) {
 
 	logMessages = 0
 
-	parser = BuildParser(func(g *Grammar) {
+	parser = BuildParser(func(g *G) {
 		g.Start = "expr"
 
 		g.LogFunc = func(f string, o ...any) {
@@ -303,7 +303,7 @@ func TestLogger(t *testing.T) {
 func TestParser(t *testing.T) {
 	var parser *Parser
 	var ok bool
-	parser = BuildParser(func(g *Grammar) {
+	parser = BuildParser(func(g *G) {
 		g.Mode = TextMode()
 		g.Start = "start"
 		g.Define("start", func() {
@@ -440,7 +440,7 @@ func TestParser(t *testing.T) {
 func TestStringMode(t *testing.T) {
 	var parser *Parser
 	var ok bool
-	parser = BuildParser(func(g *Grammar) {
+	parser = BuildParser(func(g *G) {
 		g.Start = "expr"
 		g.Mode = StringMode()
 		g.Define("expr", func() {
@@ -463,7 +463,7 @@ func TestStringMode(t *testing.T) {
 			t.Error("StringMode test case failed")
 		}
 	}
-	parser = BuildParser(func(g *Grammar) {
+	parser = BuildParser(func(g *G) {
 		g.Mode = StringMode()
 		g.Start = "start"
 		g.Define("start", func() {
@@ -546,7 +546,7 @@ func TestStringMode(t *testing.T) {
 func TestBinaryMode(t *testing.T) {
 	var parser *Parser
 	var ok bool
-	parser = BuildParser(func(g *Grammar) {
+	parser = BuildParser(func(g *G) {
 		g.Mode = BinaryMode()
 		g.Start = "start"
 
@@ -641,7 +641,7 @@ func TestTextMode(t *testing.T) {
 	var parser *Parser
 	var ok bool
 
-	parser = BuildParser(func(g *Grammar) {
+	parser = BuildParser(func(g *G) {
 		g.Start = "expr"
 		g.Mode = TextMode().Tabstop(8)
 		g.Define("expr", func() {
@@ -673,7 +673,7 @@ func TestCapture(t *testing.T) {
 	var tree *ParseTree
 	var err error
 
-	parser = BuildParser(func(g *Grammar) {
+	parser = BuildParser(func(g *G) {
 		g.Start = "start"
 		g.Define("start", func() {
 			g.Capture("main", func() {
@@ -736,7 +736,7 @@ func TestCapture(t *testing.T) {
 			}
 		}
 	}
-	parser = BuildParser(func(g *Grammar) {
+	parser = BuildParser(func(g *G) {
 		g.Start = "start"
 		g.Define("start", func() {
 			g.Capture("main", func() {
@@ -793,7 +793,7 @@ var ok bool
 func BenchmarkParser(b *testing.B) {
 	var parser *Parser
 
-	parser = BuildParser(func(g *Grammar) {
+	parser = BuildParser(func(g *G) {
 		g.Define("expr", func() {
 			g.String("x")
 			g.Optional(func() {
