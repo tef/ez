@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"unicode/utf8"
 )
 
@@ -61,14 +62,16 @@ func Printf(format string, a ...any) {
 
 func TextMode() *textMode {
 	return &textMode{
-		whitespace: []string{" ", "\t"},
-		newline:    []string{"\r\n", "\r", "\n"},
-		tabstop:    8,
+		whitespace:      []string{" ", "\t"},
+		newline:         []string{"\r\n", "\r", "\n"},
+		tabstop:         8,
+		stringsReserved: []string{"\r\n", "\r", "\n", "\t"},
 		actionsDisabled: []string{
 			byteAction,
 			byteRangeAction,
 			byteListAction,
 			byteStringAction,
+			peekByteAction,
 		},
 	}
 }
@@ -105,12 +108,12 @@ func BinaryMode() *binaryMode {
 
 func BuildGrammar(stub func(*G)) *Grammar {
 	pos := getCallerPosition(1, grammarAction) // 1 is inside DefineGrammar, 2 is where DG was called
-	return buildGrammar(pos, stub)
+	return buildGrammar(pos, TextMode(), stub)
 }
 
 func BuildParser(stub func(*G)) *Parser {
 	pos := getCallerPosition(1, grammarAction) // 1 is inside DefineGrammar, 2 is where DG was called
-	grammar := buildGrammar(pos, stub)
+	grammar := buildGrammar(pos, TextMode(), stub)
 	if grammar.Err != nil {
 		return &Parser{err: grammar.Err}
 	}
@@ -161,6 +164,7 @@ type parserConfig struct {
 	columnParser    columnParserFunc
 	whitespace      []string
 	newlines        []string
+	stringsReserved []string
 	tabstop         int
 }
 
@@ -210,12 +214,14 @@ type textMode struct {
 	newline         []string
 	tabstop         int
 	actionsDisabled []string
+	stringsReserved []string
 }
 
 func (m *textMode) parserConfig() *parserConfig {
 	return &parserConfig{
 		name:            "text mode",
 		actionsDisabled: m.actionsDisabled,
+		stringsReserved: m.stringsReserved,
 		columnParser:    textModeColumnParser,
 		whitespace:      m.whitespace,
 		newlines:        m.newline,
@@ -303,7 +309,7 @@ func (g *Grammar) Parser() *Parser {
 	return p
 }
 
-func buildGrammar(pos *filePosition, stub func(*G)) *Grammar {
+func buildGrammar(pos *filePosition, mode GrammarMode, stub func(*G)) *Grammar {
 	g := &Grammar{}
 	g.builders = make(map[string]BuilderFunc, 0)
 	g.rules = make(map[string]*parseAction, 0)
@@ -314,7 +320,7 @@ func buildGrammar(pos *filePosition, stub func(*G)) *Grammar {
 		n:          1,
 		nb:         &nodeBuilder{kind: grammarAction},
 		LogFunc:    Printf,
-		Mode:       TextMode(),
+		Mode:       mode,
 		callPos:    make(map[string][]*filePosition, 0),
 		capturePos: make(map[string][]*filePosition, 0),
 		builderPos: make(map[string]*filePosition, 0),
@@ -745,6 +751,13 @@ func (g *G) String(s ...string) {
 			g.addErrorf(p, "String(%q) contains invalid UTF-8", v)
 			return
 		}
+		for _, b := range g.parserConfig().stringsReserved {
+			if strings.Index(v, b) > -1 {
+				g.addErrorf(p, "String(%q) contains reserved string %q", v, b)
+				return
+			}
+		}
+
 	}
 
 	a := &parseAction{kind: stringAction, strings: s, pos: p}

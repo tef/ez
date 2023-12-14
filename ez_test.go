@@ -137,6 +137,21 @@ func TestErrors(t *testing.T) {
 		t.Logf("test grammar raised error:\n %v", g.Err)
 	}
 
+	// can't call String(\t) inside text Mode
+	g = BuildGrammar(func(g *G) {
+		g.Start = "expr"
+
+		g.Define("expr", func() {
+			g.String("no tab\t")
+		})
+	})
+
+	if g.Err == nil {
+		t.Error("tab should raise error")
+	} else {
+		t.Logf("test grammar raised error:\n %v", g.Err)
+	}
+
 	// can't call byte inside text Mode
 	g = BuildGrammar(func(g *G) {
 		g.Start = "expr"
