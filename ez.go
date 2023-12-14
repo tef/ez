@@ -269,6 +269,7 @@ type Grammar struct {
 	start   string
 	logFunc func(string, ...any)
 
+	names	 []string
 	rules    map[string]*parseAction
 	builders map[string]BuilderFunc
 
@@ -294,15 +295,21 @@ func (g *Grammar) Parser() *Parser {
 		return p
 	}
 
-	rules := make(map[string]parseFunc, len(g.rules))
+	index := make(map[string]int, len(g.rules))
+	for i, n := range g.names {
+		index[n] = i
+	}
 
-	for k, v := range g.rules {
-		rules[k] = buildAction(g, v)
+	rules := make([]parseFunc, len(g.rules))
+	for i, n := range g.names {
+		rule := g.rules[n]
+		rules[i] = buildAction(g, rule, index)
 	}
 
 	p := &Parser{
 		start:    g.start,
 		rules:    rules,
+		index:    index,
 		builders: g.builders,
 		grammar:  g,
 	}
@@ -593,6 +600,7 @@ func (g *G) Define(name string, stub func()) {
 
 	r := g.buildRule(name, stub)
 	g.grammar.rules[name] = r.buildSequence(p)
+	g.grammar.names = append(g.grammar.names, name)
 }
 
 func (g *G) Print(args ...any) {
@@ -1117,7 +1125,7 @@ func (g *G) Builder(name string, stub BuilderFunc) {
 type parseFunc func(*parserInput, *parserState) bool
 
 type parserInput struct {
-	rules        map[string]parseFunc
+	rules        []parseFunc
 	buf          string
 	length       int
 	columnParser columnParserFunc
@@ -1328,7 +1336,7 @@ func textModeColumnParser(buf string, column int, tabstop int, oldOffset int, ne
 	return column
 }
 
-func buildAction(g *Grammar, a *parseAction) parseFunc {
+func buildAction(g *Grammar, a *parseAction, index map[string]int) parseFunc {
 	if a == nil {
 		// when a func() stub has no rules
 		return func(i *parserInput, s *parserState) bool {
@@ -1350,7 +1358,7 @@ func buildAction(g *Grammar, a *parseAction) parseFunc {
 
 		rules := make([]parseFunc, len(a.args))
 		for i, r := range a.args {
-			rules[i] = buildAction(g, r)
+			rules[i] = buildAction(g, r, index)
 		}
 
 		return func(i *parserInput, s *parserState) bool {
@@ -1378,15 +1386,15 @@ func buildAction(g *Grammar, a *parseAction) parseFunc {
 		}
 	case callAction:
 		prefix := a.pos
-
 		name := a.name
+		idx := index[name]
 		fn := g.logFunc
 		return func(i *parserInput, s *parserState) bool {
 			if s.trace {
 				fn("%v: Call(%q) starting, at offset %v\n", prefix, name, s.offset)
 			}
 
-			rule := i.rules[name] // can't move this out to runtime unless we reorder defs
+			rule := i.rules[idx] // can't move this out to runtime unless we reorder defs
 			oldChoice := s.choiceExit
 			s.choiceExit = false
 
@@ -1475,7 +1483,7 @@ func buildAction(g *Grammar, a *parseAction) parseFunc {
 		rules := make(map[string]parseFunc, len(a.stringSwitch))
 		size := 0
 		for i, r := range a.stringSwitch {
-			rules[i] = buildAction(g, r)
+			rules[i] = buildAction(g, r, index)
 			if len(i) > size {
 				size = len(i)
 			}
@@ -1495,7 +1503,7 @@ func buildAction(g *Grammar, a *parseAction) parseFunc {
 	case peekRuneAction:
 		rules := make(map[rune]parseFunc, len(a.runeSwitch))
 		for i, r := range a.runeSwitch {
-			rules[i] = buildAction(g, r)
+			rules[i] = buildAction(g, r, index)
 		}
 		return func(i *parserInput, s *parserState) bool {
 			if atEnd(i, s) {
@@ -1512,7 +1520,7 @@ func buildAction(g *Grammar, a *parseAction) parseFunc {
 	case peekByteAction:
 		rules := make(map[byte]parseFunc, len(a.byteSwitch))
 		for i, r := range a.byteSwitch {
-			rules[i] = buildAction(g, r)
+			rules[i] = buildAction(g, r, index)
 		}
 		return func(i *parserInput, s *parserState) bool {
 			if atEnd(i, s) {
@@ -1601,7 +1609,7 @@ func buildAction(g *Grammar, a *parseAction) parseFunc {
 	case optionalAction:
 		rules := make([]parseFunc, len(a.args))
 		for i, r := range a.args {
-			rules[i] = buildAction(g, r)
+			rules[i] = buildAction(g, r, index)
 		}
 		return func(i *parserInput, s *parserState) bool {
 			var s1 parserState
@@ -1619,7 +1627,7 @@ func buildAction(g *Grammar, a *parseAction) parseFunc {
 	case lookaheadAction:
 		rules := make([]parseFunc, len(a.args))
 		for i, r := range a.args {
-			rules[i] = buildAction(g, r)
+			rules[i] = buildAction(g, r, index)
 		}
 		return func(i *parserInput, s *parserState) bool {
 			var s1 parserState
@@ -1636,7 +1644,7 @@ func buildAction(g *Grammar, a *parseAction) parseFunc {
 	case rejectAction:
 		rules := make([]parseFunc, len(a.args))
 		for i, r := range a.args {
-			rules[i] = buildAction(g, r)
+			rules[i] = buildAction(g, r, index)
 		}
 		return func(i *parserInput, s *parserState) bool {
 			var s1 parserState
@@ -1654,7 +1662,7 @@ func buildAction(g *Grammar, a *parseAction) parseFunc {
 	case repeatAction:
 		rules := make([]parseFunc, len(a.args))
 		for i, r := range a.args {
-			rules[i] = buildAction(g, r)
+			rules[i] = buildAction(g, r, index)
 		}
 		min_n := a.min
 		max_n := a.max
@@ -1691,7 +1699,7 @@ func buildAction(g *Grammar, a *parseAction) parseFunc {
 	case choiceAction:
 		rules := make([]parseFunc, len(a.args))
 		for i, r := range a.args {
-			rules[i] = buildAction(g, r)
+			rules[i] = buildAction(g, r, index)
 		}
 		return func(i *parserInput, s *parserState) bool {
 			for _, r := range rules {
@@ -1713,7 +1721,7 @@ func buildAction(g *Grammar, a *parseAction) parseFunc {
 	case sequenceAction:
 		rules := make([]parseFunc, len(a.args))
 		for i, r := range a.args {
-			rules[i] = buildAction(g, r)
+			rules[i] = buildAction(g, r, index)
 		}
 		return func(i *parserInput, s *parserState) bool {
 			var s1 parserState
@@ -1730,7 +1738,7 @@ func buildAction(g *Grammar, a *parseAction) parseFunc {
 	case captureAction:
 		rules := make([]parseFunc, len(a.args))
 		for i, r := range a.args {
-			rules[i] = buildAction(g, r)
+			rules[i] = buildAction(g, r, index)
 		}
 		return func(i *parserInput, s *parserState) bool {
 			var s1 parserState
@@ -1753,7 +1761,8 @@ func buildAction(g *Grammar, a *parseAction) parseFunc {
 }
 
 type Parser struct {
-	rules    map[string]parseFunc
+	rules    []parseFunc
+	index    map[string]int
 	start    string
 	builders map[string]BuilderFunc
 	grammar  *Grammar
@@ -1782,7 +1791,7 @@ func (p *Parser) ParseTree(s string) (*ParseTree, error) {
 	}
 	input := p.newParserInput(s)
 	state := &parserState{}
-	rule := p.rules[p.start]
+	rule := p.rules[p.index[p.start]]
 
 	complete := rule(input, state) && atEnd(input, state)
 	if complete {
@@ -1813,19 +1822,20 @@ func (p *Parser) testGrammar(accept []string, reject []string) bool {
 	if p.err != nil {
 		return false
 	}
-	start := p.rules[p.start]
-	return p.testParseFunc(start, accept, reject)
+	rule := p.rules[p.index[p.start]]
+	return p.testParseFunc(rule, accept, reject)
 }
 
 func (p *Parser) testRule(name string, accept []string, reject []string) bool {
 	if p.err != nil {
 		return false
 	}
-	start, ok := p.rules[name]
+	i, ok := p.index[name]
 	if !ok {
 		return false
 	}
-	return p.testParseFunc(start, accept, reject)
+	rule := p.rules[i]
+	return p.testParseFunc(rule, accept, reject)
 }
 
 func (p *Parser) testParseFunc(rule parseFunc, accept []string, reject []string) bool {
