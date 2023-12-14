@@ -30,7 +30,7 @@ const (
 	startOfFileAction = "StartOfFie"
 	endOfFileAction   = "EndOfFile"
 
-	peekAction       = "Peek"
+	peekStringAction = "PeekString"
 	runeAction       = "Rune"
 	peekRuneAction   = "PeekRune"
 	stringAction     = "String"
@@ -619,23 +619,23 @@ func (g *Grammar) Rune() {
 	g.nb.append(a)
 }
 
-func (g *Grammar) Peek(stubs map[string]func()) {
-	p := g.markPosition(peekAction)
-	if g.shouldExit(p, peekAction) {
+func (g *Grammar) PeekString(stubs map[string]func()) {
+	p := g.markPosition(peekStringAction)
+	if g.shouldExit(p, peekStringAction) {
 		return
 	} else if stubs == nil {
-		g.Error(p, "cant call Peek() with nil map")
+		g.Error(p, "cant call PeekString() with nil map")
 		return
 	}
 
 	args := make(map[string]*parseAction, len(stubs))
 	for c, stub := range stubs {
 		if stub == nil {
-			g.Error(p, "cant call Peek() with nil function")
+			g.Error(p, "cant call PeekString() with nil function")
 			return
 		}
 
-		r := g.buildStub(peekAction, stub)
+		r := g.buildStub(peekStringAction, stub)
 
 		if g.err != nil {
 			return
@@ -643,7 +643,7 @@ func (g *Grammar) Peek(stubs map[string]func()) {
 
 		args[c] = r.buildSequence(p)
 	}
-	a := &parseAction{kind: peekAction, stringSwitch: args, pos: p}
+	a := &parseAction{kind: peekStringAction, stringSwitch: args, pos: p}
 	g.nb.append(a)
 }
 func (g *Grammar) PeekRune(stubs map[rune]func()) {
@@ -681,6 +681,12 @@ func (g *Grammar) String(s ...string) {
 	if len(s) == 0 {
 		g.Error(p, "missing operand")
 		return
+	}
+	for _, v := range s {
+		if !utf8.ValidString(v) {
+			g.Errorf(p, "String(%q) contains invalid UTF-8", v)
+			return
+		}
 	}
 
 	a := &parseAction{kind: stringAction, strings: s, pos: p}
@@ -766,7 +772,18 @@ func (g *Grammar) ByteString(s ...string) {
 
 	b := make([][]byte, len(s))
 	for i, v := range s {
-		b[i] = []byte(v)
+		bs := make([]byte, utf8.RuneCountInString(v))
+		c := 0
+		for _, r := range v {
+			if r > 255 {
+				g.Errorf(p, "ByteString(%q) contains rune > 255, cannot convert to []byte", v)
+				return
+			}
+			bs[c] = byte(r)
+			c++
+		}
+		b[i] = bs
+
 	}
 
 	a := &parseAction{kind: byteStringAction, bytes: b, pos: p}
@@ -1271,7 +1288,7 @@ func (a *parseAction) buildFunc(g *Grammar) parseFunc {
 			}
 			return false
 		}
-	case peekAction:
+	case peekStringAction:
 		rules := make(map[string]parseFunc, len(a.stringSwitch))
 		size := 0
 		for i, r := range a.stringSwitch {
