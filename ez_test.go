@@ -350,7 +350,7 @@ func TestParser(t *testing.T) {
 		})
 		g.Define("test_cut", func() {
 			g.Choice(func() {
-				g.Capture("a", func(){
+				g.Capture("a", func() {
 					g.String("a")
 					g.Cut()
 				})

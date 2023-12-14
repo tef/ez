@@ -288,10 +288,10 @@ func (e *grammarError) Error() string {
 }
 
 type nodeBuilder struct {
-	kind string
+	kind   string
 	parent *nodeBuilder
-	rule *int
-	args []*parseAction
+	rule   *int
+	args   []*parseAction
 }
 
 func (b *nodeBuilder) buildSequence(pos int) *parseAction {
@@ -330,11 +330,10 @@ func (b *nodeBuilder) nestedInside(k string) bool {
 type BuilderFunc func(string, []any) (any, error)
 
 type Grammar struct {
-	g *G
-	err error
+	g      *G
+	err    error
 	errors []error
 }
-
 
 func (g *Grammar) Err() error {
 	return g.err
@@ -350,26 +349,24 @@ func (g *Grammar) Parser() *Parser {
 	return g.g.parser()
 }
 
-
 type G struct {
 	Start   string
 	Mode    ParserMode
 	LogFunc func(string, ...any)
 
-
-	rules   []*parseAction
-	names   []string
-	nameIdx map[string]int
-	builders   map[string]BuilderFunc
+	rules    []*parseAction
+	names    []string
+	nameIdx  map[string]int
+	builders map[string]BuilderFunc
 
 	// list of pos for each name
-	posInfo []filePosition
+	posInfo    []filePosition
 	rulePos    []int // posInfo[rulePos[ruleNum]]
 	callPos    map[string][]int
 	capturePos map[string][]int
 
 	builderPos map[string]int
-	nb *nodeBuilder
+	nb         *nodeBuilder
 
 	pos    int // posInfo[pos] for grammar define
 	errors []error
@@ -504,7 +501,7 @@ func (g *G) buildGrammar(stub func(*G)) *Grammar {
 	if err := g.check(); err != nil {
 		return &Grammar{err: err}
 	}
-	return &Grammar{g:g}
+	return &Grammar{g: g}
 }
 
 func (g *G) formatPosition(p *filePosition) string {
@@ -591,7 +588,6 @@ func (g *G) parser() *Parser {
 	}
 	return p
 }
-
 
 func (g *G) Define(name string, stub func()) {
 	p := g.markPosition(defineAction)
