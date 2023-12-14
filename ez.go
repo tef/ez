@@ -104,27 +104,14 @@ func BinaryMode() *binaryMode {
 }
 
 func BuildGrammar(stub func(*G)) *Grammar {
-	g := &G{}
-	g.LogFunc = Printf
-	g.pos = g.markPosition(grammarAction)
+	// build a Grammar
+	// mark position
 
-	if stub == nil {
-		g.Error(g.pos, "cant call BuildGrammar() with nil")
-	}
-
-	return g.buildGrammar(stub)
+	return buildGrammar(stub)
 }
 
 func BuildParser(stub func(*G)) *Parser {
-	g := &G{}
-	g.LogFunc = Printf
-	g.pos = g.markPosition(grammarAction)
-	if stub == nil {
-		g.Error(g.pos, "cant call BuildParser() with nil")
-		return &Parser{err: g.err}
-	}
-
-	grammar := g.buildGrammar(stub)
+	grammar := buildGrammar(stub)
 	if err := grammar.Err(); err != nil {
 		return &Parser{err: err}
 	}
@@ -279,7 +266,7 @@ type filePosition struct {
 }
 
 type grammarError struct {
-	g       *G
+	g       *Grammar
 	pos     int
 	message string
 	fatal   bool
@@ -311,6 +298,175 @@ type parseAction struct {
 	inverted bool
 	message  []any
 }
+
+type Grammar struct {
+	start   int
+	mode    ParserMode
+	logFunc func(string, ...any)
+
+	rules    []*parseAction
+	names    []string
+	nameIdx  map[string]int
+	builders map[string]BuilderFunc
+
+	// list of pos for each name
+	posInfo    []filePosition
+	rulePos    []int // posInfo[rulePos[ruleNum]]
+	callPos    map[string][]int
+	capturePos map[string][]int
+	builderPos map[string]int
+
+	pos    int // posInfo[pos] for grammar define
+	err    error
+	errors []error
+}
+
+func (g *Grammar) Err() error {
+	return g.err
+}
+
+func (g *Grammar) Errors() []error {
+	if g.errors == nil {
+		return []error{}
+	}
+	return g.errors
+}
+
+// XXX MOVE OUT
+func (g *Grammar) formatPosition(p *filePosition) string {
+	if p.rule != nil {
+		return fmt.Sprintf("%v:%v:%v", p.file, p.line, g.names[*p.rule])
+	} else {
+		return fmt.Sprintf("%v:%v", p.file, p.line)
+	}
+
+}
+
+// XXX move to getCallerPosition()
+func (g *Grammar) markPosition(actionKind string, rule *int) int {
+	_, file, no, ok := runtime.Caller(2)
+	if !ok {
+		return -1
+	}
+	base, _ := os.Getwd()
+	file, _ = filepath.Rel(base, file)
+	pos := filePosition{file: file, line: no, rule: rule, action: actionKind}
+	p := len(g.posInfo)
+
+	g.posInfo = append(g.posInfo, pos)
+	return p
+}
+
+func buildGrammar(stub func(*G)) *Grammar {
+	g := &Grammar{}
+	g.nameIdx = make(map[string]int, 0)
+	g.callPos = make(map[string][]int, 0)
+	g.capturePos = make(map[string][]int, 0)
+	g.builders = make(map[string]BuilderFunc, 0)
+	g.builderPos = make(map[string]int, 0)
+	g.pos = g.markPosition(grammarAction, nil)
+
+	bigG := &G{
+		grammar: g,
+		nb:      &nodeBuilder{kind: grammarAction},
+		LogFunc: Printf,
+		Mode:    TextMode(),
+	}
+
+	if stub == nil {
+		bigG.Error(g.pos, "cant call BuildGrammar() with nil")
+	}
+
+	stub(bigG)
+
+	g.mode = bigG.Mode
+	if bigG.Start == "" && len(g.names) == 1 {
+		bigG.Start = g.names[0]
+	}
+	g.start = g.nameIdx[bigG.Start]
+	g.logFunc = bigG.LogFunc
+
+	if err := bigG.check(); err != nil {
+		return &Grammar{err: err}
+	}
+	return g
+}
+
+func (bg *G) check() error {
+	g := bg.grammar
+	if g.err != nil {
+		return g.err
+	}
+	if !bg.Mode.check() {
+		bg.Error(g.pos, "misconfigured mode")
+		return g.err
+	}
+
+	for name, pos := range g.callPos {
+		if _, ok := g.nameIdx[name]; !ok {
+			for _, p := range pos {
+				bg.Errorf(p, "missing rule %q", name)
+			}
+		}
+	}
+
+	for n, name := range g.names {
+		if name != bg.Start && g.callPos[name] == nil {
+			p := g.rulePos[n]
+			bg.Errorf(p, "unused rule %q", name)
+		}
+	}
+
+	for name, _ := range g.builders {
+		if _, ok := g.capturePos[name]; !ok {
+			p := g.builderPos[name]
+			bg.Errorf(p, "missing capture %q for builder", name)
+		}
+	}
+
+	if len(g.builders) > 0 {
+		for name, pos := range g.capturePos {
+			if _, ok := g.builderPos[name]; !ok {
+				for _, p := range pos {
+					bg.Errorf(p, "missing builder %q for capture", name)
+				}
+			}
+		}
+	}
+
+	if bg.Start == "" {
+		bg.Error(g.pos, "starting rule undefined")
+	} else if _, ok := g.nameIdx[bg.Start]; !ok {
+		bg.Errorf(g.pos, "starting rule %q is missing", bg.Start)
+	}
+
+	return g.err
+}
+
+func (g *Grammar) Parser() *Parser {
+	if g.err != nil {
+		p := &Parser{err: g.err}
+		return p
+	}
+
+	rules := make([]parseFunc, len(g.rules))
+
+	for k, v := range g.rules {
+		rules[k] = buildAction(g, v)
+	}
+
+	start := g.start
+
+	p := &Parser{
+		start:    start,
+		rules:    rules,
+		builders: g.builders,
+		grammar:  g,
+	}
+	return p
+}
+
+// Builder
 
 type nodeBuilder struct {
 	kind   string
@@ -352,116 +508,71 @@ func (b *nodeBuilder) nestedInside(k string) bool {
 	return false
 }
 
-type Grammar struct {
-	g      *G
-	err    error
-	errors []error
-}
-
-func (g *Grammar) Err() error {
-	return g.err
-}
-
-func (g *Grammar) Errors() []error {
-	if g.errors == nil {
-		return []error{}
-	}
-	return g.errors
-}
-func (g *Grammar) Parser() *Parser {
-	return g.g.parser()
-}
-
 type G struct {
+	grammar *Grammar
+
 	Start   string
 	Mode    ParserMode
 	LogFunc func(string, ...any)
 
-	rules    []*parseAction
-	names    []string
-	nameIdx  map[string]int
-	builders map[string]BuilderFunc
+	nb *nodeBuilder
+}
 
-	// list of pos for each name
-	posInfo    []filePosition
-	rulePos    []int // posInfo[rulePos[ruleNum]]
-	callPos    map[string][]int
-	capturePos map[string][]int
-
-	builderPos map[string]int
-	nb         *nodeBuilder
-
-	pos    int // posInfo[pos] for grammar define
-	errors []error
-	err    error
+func (g *G) err() error {
+	return g.grammar.err
 }
 
 func (g *G) Error(pos int, args ...any) {
 	msg := fmt.Sprint(args...)
 	err := &grammarError{
-		g:       g,
+		g:       g.grammar,
 		message: msg,
 		pos:     pos,
 	}
-	if g.err == nil {
-		g.err = err
+	if g.grammar.err == nil {
+		g.grammar.err = err
 	}
-	g.errors = append(g.errors, err)
+	g.grammar.errors = append(g.grammar.errors, err)
 }
 
 func (g *G) Errorf(pos int, s string, args ...any) {
 	msg := fmt.Sprintf(s, args...)
 	err := &grammarError{
-		g:       g,
+		g:       g.grammar,
 		message: msg,
 		pos:     pos,
 	}
-	if g.err == nil {
-		g.err = err
+	if g.grammar.err == nil {
+		g.grammar.err = err
 	}
-	g.errors = append(g.errors, err)
+	g.grammar.errors = append(g.grammar.errors, err)
 }
 
 func (g *G) Warn(pos int, args ...any) {
 	msg := fmt.Sprint(args...)
 	err := &grammarError{
-		g:       g,
+		g:       g.grammar,
 		message: msg,
 		pos:     pos,
 	}
-	g.errors = append(g.errors, err)
+	g.grammar.errors = append(g.grammar.errors, err)
 }
 
 func (g *G) Warnf(pos int, s string, args ...any) {
 	msg := fmt.Sprintf(s, args...)
 	err := &grammarError{
-		g:       g,
+		g:       g.grammar,
 		message: msg,
 		pos:     pos,
 	}
-	g.errors = append(g.errors, err)
-}
-
-func (g *G) markPosition(actionKind string) int {
-	_, file, no, ok := runtime.Caller(2)
-	if !ok {
-		return -1
-	}
-	base, _ := os.Getwd()
-	file, _ = filepath.Rel(base, file)
-	var rule *int = nil
-	if g.nb != nil {
-		rule = g.nb.rule
-	}
-	pos := filePosition{file: file, line: no, rule: rule, action: actionKind}
-	p := len(g.posInfo)
-
-	g.posInfo = append(g.posInfo, pos)
-	return p
+	g.grammar.errors = append(g.grammar.errors, err)
 }
 
 func (g *G) shouldExit(pos int, kind string) bool {
-	if g.err != nil {
+	if g.grammar == nil {
+		return true
+	}
+	if g.grammar.err != nil {
 		return true
 	}
 	if g.nb == nil {
@@ -484,6 +595,16 @@ func (g *G) shouldExit(pos int, kind string) bool {
 
 }
 
+func (g *G) markPosition(actionKind string) int {
+	if g.grammar == nil {
+		return 0
+	}
+	var rule *int = nil
+	if g.nb != nil {
+		rule = g.nb.rule
+	}
+	return g.grammar.markPosition(actionKind, rule)
+}
 func (g *G) buildStub(kind string, stub func()) *nodeBuilder {
 	var rule *int
 	oldNb := g.nb
@@ -506,115 +627,9 @@ func (g *G) buildRule(rule int, stub func()) *nodeBuilder {
 	return newNb
 }
 
-func (g *G) buildGrammar(stub func(*G)) *Grammar {
-	if g.nb != nil || g.names != nil {
-		return &Grammar{err: errors.New("empty grammar")}
-	}
-	g.nameIdx = make(map[string]int, 0)
-	g.callPos = make(map[string][]int, 0)
-	g.capturePos = make(map[string][]int, 0)
-	g.builders = make(map[string]BuilderFunc, 0)
-	g.builderPos = make(map[string]int, 0)
-	g.nb = &nodeBuilder{kind: grammarAction}
-	g.Mode = TextMode()
-
-	stub(g)
-	g.nb = nil
-
-	if err := g.check(); err != nil {
-		return &Grammar{err: err}
-	}
-	return &Grammar{g: g}
-}
-
-func (g *G) formatPosition(p *filePosition) string {
-	if p.rule != nil {
-		return fmt.Sprintf("%v:%v:%v", p.file, p.line, g.names[*p.rule])
-	} else {
-		return fmt.Sprintf("%v:%v", p.file, p.line)
-	}
-
-}
-func (g *G) check() error {
-	if g.err != nil {
-		return g.err
-	}
-	if !g.Mode.check() {
-		g.Error(g.pos, "misconfigured mode")
-		return g.err
-	}
-
-	if g.Start == "" && len(g.names) == 1 {
-		g.Start = g.names[0]
-	}
-
-	for name, pos := range g.callPos {
-		if _, ok := g.nameIdx[name]; !ok {
-			for _, p := range pos {
-				g.Errorf(p, "missing rule %q", name)
-			}
-		}
-	}
-
-	for n, name := range g.names {
-		if name != g.Start && g.callPos[name] == nil {
-			p := g.rulePos[n]
-			g.Errorf(p, "unused rule %q", name)
-		}
-	}
-
-	for name, _ := range g.builders {
-		if _, ok := g.capturePos[name]; !ok {
-			p := g.builderPos[name]
-			g.Errorf(p, "missing capture %q for builder", name)
-		}
-	}
-
-	if len(g.builders) > 0 {
-		for name, pos := range g.capturePos {
-			if _, ok := g.builderPos[name]; !ok {
-				for _, p := range pos {
-					g.Errorf(p, "missing builder %q for capture", name)
-				}
-			}
-		}
-	}
-
-	if g.Start == "" {
-		g.Error(g.pos, "starting rule undefined")
-	} else if _, ok := g.nameIdx[g.Start]; !ok {
-		g.Errorf(g.pos, "starting rule %q is missing", g.Start)
-	}
-
-	return g.err
-}
-
-func (g *G) parser() *Parser {
-	if g.check() != nil {
-		p := &Parser{err: g.err}
-		return p
-	}
-
-	rules := make([]parseFunc, len(g.rules))
-
-	for k, v := range g.rules {
-		rules[k] = buildAction(g, v)
-	}
-
-	start := g.nameIdx[g.Start]
-
-	p := &Parser{
-		start:    start,
-		rules:    rules,
-		builders: g.builders,
-		grammar:  g,
-	}
-	return p
-}
-
 func (g *G) Define(name string, stub func()) {
 	p := g.markPosition(defineAction)
-	if g.err != nil {
+	if g.grammar == nil || g.grammar.err != nil {
 		return
 	} else if g.nb == nil {
 		g.Error(p, "must call define inside grammar")
@@ -627,19 +642,19 @@ func (g *G) Define(name string, stub func()) {
 		return
 	}
 
-	if old, ok := g.nameIdx[name]; ok {
-		oldPos := g.posInfo[g.rulePos[old]]
+	if old, ok := g.grammar.nameIdx[name]; ok {
+		oldPos := g.grammar.posInfo[g.grammar.rulePos[old]]
 		g.Errorf(p, "cant redefine %q, already defined at %v", name, oldPos)
 		return
 	}
 
-	ruleNum := len(g.names)
-	g.names = append(g.names, name)
-	g.nameIdx[name] = ruleNum
-	g.rulePos = append(g.rulePos, p)
+	ruleNum := len(g.grammar.names)
+	g.grammar.names = append(g.grammar.names, name)
+	g.grammar.nameIdx[name] = ruleNum
+	g.grammar.rulePos = append(g.grammar.rulePos, p)
 
 	r := g.buildRule(ruleNum, stub)
-	g.rules = append(g.rules, r.buildSequence(p))
+	g.grammar.rules = append(g.grammar.rules, r.buildSequence(p))
 }
 
 func (g *G) Print(args ...any) {
@@ -659,7 +674,7 @@ func (g *G) Trace(stub func()) {
 	}
 
 	r := g.buildStub(traceAction, stub)
-	if g.err != nil {
+	if g.err() != nil {
 		return
 	}
 
@@ -753,7 +768,7 @@ func (g *G) PeekString(stubs map[string]func()) {
 
 		r := g.buildStub(peekStringAction, stub)
 
-		if g.err != nil {
+		if g.err() != nil {
 			return
 		}
 
@@ -780,7 +795,7 @@ func (g *G) PeekRune(stubs map[rune]func()) {
 
 		r := g.buildStub(peekRuneAction, stub)
 
-		if g.err != nil {
+		if g.err() != nil {
 			return
 		}
 
@@ -866,7 +881,7 @@ func (g *G) PeekByte(stubs map[byte]func()) {
 
 		r := g.buildStub(peekByteAction, stub)
 
-		if g.err != nil {
+		if g.err() != nil {
 			return
 		}
 
@@ -983,7 +998,7 @@ func (g *G) Call(name string) {
 	if g.shouldExit(p, callAction) {
 		return
 	}
-	g.callPos[name] = append(g.callPos[name], p)
+	g.grammar.callPos[name] = append(g.grammar.callPos[name], p)
 	a := &parseAction{kind: callAction, name: name, pos: p}
 	g.nb.append(a)
 }
@@ -998,7 +1013,7 @@ func (g *G) Sequence(stub func()) {
 
 	r := g.buildStub(sequenceAction, stub)
 
-	if g.err != nil {
+	if g.err() != nil {
 		return
 	}
 
@@ -1016,11 +1031,11 @@ func (g *G) Capture(name string, stub func()) {
 
 	r := g.buildStub(sequenceAction, stub)
 
-	if g.err != nil {
+	if g.err() != nil {
 		return
 	}
 
-	g.capturePos[name] = append(g.capturePos[name], p)
+	g.grammar.capturePos[name] = append(g.grammar.capturePos[name], p)
 
 	a := &parseAction{kind: captureAction, name: name, args: r.args, pos: p}
 	g.nb.append(a)
@@ -1058,7 +1073,7 @@ func (g *G) Choice(options ...func()) {
 
 		r := g.buildStub(choiceAction, stub)
 
-		if g.err != nil {
+		if g.err() != nil {
 			return
 		}
 
@@ -1076,7 +1091,7 @@ func (g *G) Optional(stub func()) {
 		g.Error(p, "cant call Optional() with nil")
 	}
 	r := g.buildStub(optionalAction, stub)
-	if g.err != nil {
+	if g.err() != nil {
 		return
 	}
 
@@ -1092,7 +1107,7 @@ func (g *G) Lookahead(stub func()) {
 		g.Error(p, "cant call Lookahead() with nil")
 	}
 	r := g.buildStub(lookaheadAction, stub)
-	if g.err != nil {
+	if g.err() != nil {
 		return
 	}
 
@@ -1108,7 +1123,7 @@ func (g *G) Reject(stub func()) {
 		g.Error(p, "cant call Reject() with nil")
 	}
 	r := g.buildStub(rejectAction, stub)
-	if g.err != nil {
+	if g.err() != nil {
 		return
 	}
 
@@ -1126,7 +1141,7 @@ func (g *G) Repeat(min_t int, max_t int, stub func()) {
 
 	r := g.buildStub(repeatAction, stub)
 
-	if g.err != nil {
+	if g.err() != nil {
 		return
 	}
 
@@ -1136,7 +1151,7 @@ func (g *G) Repeat(min_t int, max_t int, stub func()) {
 
 func (g *G) Builder(name string, stub BuilderFunc) {
 	p := g.markPosition(builderAction)
-	if g.err != nil {
+	if g.err() != nil {
 		return
 	} else if g.nb == nil {
 		g.Error(p, "must call Builder() inside grammar")
@@ -1148,13 +1163,13 @@ func (g *G) Builder(name string, stub BuilderFunc) {
 		g.Error(p, "cant call Builder() with nil")
 	}
 
-	if _, ok := g.builders[name]; ok {
-		oldPos := g.builderPos[name]
+	if _, ok := g.grammar.builders[name]; ok {
+		oldPos := g.grammar.builderPos[name]
 		g.Errorf(p, "cant redefine %q, already defined at %v", name, oldPos)
 		return
 	}
-	g.builderPos[name] = p
-	g.builders[name] = stub
+	g.grammar.builderPos[name] = p
+	g.grammar.builders[name] = stub
 }
 
 //
@@ -1375,7 +1390,7 @@ func textModeColumnParser(buf string, column int, tabstop int, oldOffset int, ne
 	return column
 }
 
-func buildAction(g *G, a *parseAction) parseFunc {
+func buildAction(g *Grammar, a *parseAction) parseFunc {
 	if a == nil {
 		// when a func() stub has no rules
 		return func(i *parserInput, s *parserState) bool {
@@ -1386,7 +1401,7 @@ func buildAction(g *G, a *parseAction) parseFunc {
 	case printAction:
 		p := g.posInfo[a.pos]
 		prefix := g.formatPosition(&p)
-		fn := g.LogFunc
+		fn := g.logFunc
 		return func(i *parserInput, s *parserState) bool {
 			msg := fmt.Sprint(a.message...)
 			fn("%v: Print(%q) called, at offset %v, column %v\n", prefix, msg, s.offset, s.column)
@@ -1395,7 +1410,7 @@ func buildAction(g *G, a *parseAction) parseFunc {
 	case traceAction:
 		p := g.posInfo[a.pos]
 		prefix := g.formatPosition(&p)
-		fn := g.LogFunc
+		fn := g.logFunc
 
 		rules := make([]parseFunc, len(a.args))
 		for i, r := range a.args {
@@ -1431,7 +1446,7 @@ func buildAction(g *G, a *parseAction) parseFunc {
 
 		name := a.name
 		idx := g.nameIdx[name]
-		fn := g.LogFunc
+		fn := g.logFunc
 		return func(i *parserInput, s *parserState) bool {
 			if s.trace {
 				fn("%v: Call(%q) starting, at offset %v\n", prefix, name, s.offset)
@@ -1459,7 +1474,7 @@ func buildAction(g *G, a *parseAction) parseFunc {
 	// case dedentAction
 
 	case whitespaceAction:
-		ws := g.Mode.getWhitespace()
+		ws := g.mode.getWhitespace()
 		return func(i *parserInput, s *parserState) bool {
 			for {
 				if !acceptAny(i, s, ws) {
@@ -1469,7 +1484,7 @@ func buildAction(g *G, a *parseAction) parseFunc {
 			return true
 		}
 	case endOfLineAction, newlineAction:
-		nl := g.Mode.getNewlines()
+		nl := g.mode.getNewlines()
 		return func(i *parserInput, s *parserState) bool {
 			return acceptAny(i, s, nl)
 		}
@@ -1807,7 +1822,7 @@ type Parser struct {
 	rules    []parseFunc
 	start    int
 	builders map[string]BuilderFunc
-	grammar  *G
+	grammar  *Grammar
 	err      error
 }
 
@@ -1816,7 +1831,7 @@ func (p *Parser) Err() error {
 }
 
 func (p *Parser) newParserInput(s string) *parserInput {
-	mode := p.grammar.Mode
+	mode := p.grammar.mode
 	i := &parserInput{
 		rules:        p.rules,
 		buf:          s,
@@ -1837,7 +1852,7 @@ func (p *Parser) ParseTree(s string) (*ParseTree, error) {
 
 	complete := rule(input, state) && atEnd(input, state)
 	if complete {
-		name := p.grammar.Start
+		name := p.grammar.names[p.start]
 		n := state.finalNode(name)
 		return &ParseTree{root: n, buf: s, nodes: state.nodes}, nil
 	}

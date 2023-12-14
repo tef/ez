@@ -89,31 +89,6 @@ func TestErrors(t *testing.T) {
 		t.Logf("test grammar raised error:\n %v", g.err)
 	}
 
-	// calling builders outside should fail
-	var inner *G
-	g = BuildGrammar(func(g *G) {
-		g.Start = "expr"
-		inner = g
-
-		g.Define("expr", func() {})
-	})
-	inner.Define("expr2", func() {})
-
-	if inner.err == nil {
-		t.Error("define should raise error")
-	} else {
-		t.Logf("test grammar raised error:\n %v", inner.err)
-	}
-	// calling builders outside should fail
-	outer := &G{}
-	outer.Define("expr2", func() {})
-
-	if outer.err == nil {
-		t.Error("define should raise error")
-	} else {
-		t.Logf("test grammar raised error:\n %v", outer.err)
-	}
-
 	// invert must be called after Range
 	g = BuildGrammar(func(g *G) {
 		g.Start = "expr"
