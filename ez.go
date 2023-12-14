@@ -266,12 +266,10 @@ type parseAction struct {
 
 type Grammar struct {
 	config  *parserConfig
-	start   int
+	start   string
 	logFunc func(string, ...any)
 
-	rules    []*parseAction
-	names    []string
-	nameIdx  map[string]int
+	rules    map[string]*parseAction
 	builders map[string]BuilderFunc
 
 	pos    *filePosition //
@@ -296,16 +294,14 @@ func (g *Grammar) Parser() *Parser {
 		return p
 	}
 
-	rules := make([]parseFunc, len(g.rules))
+	rules := make(map[string]parseFunc, len(g.rules))
 
 	for k, v := range g.rules {
 		rules[k] = buildAction(g, v)
 	}
 
-	start := g.start
-
 	p := &Parser{
-		start:    start,
+		start:    g.start,
 		rules:    rules,
 		builders: g.builders,
 		grammar:  g,
@@ -315,8 +311,8 @@ func (g *Grammar) Parser() *Parser {
 
 func buildGrammar(pos *filePosition, stub func(*G)) *Grammar {
 	g := &Grammar{}
-	g.nameIdx = make(map[string]int, 0)
 	g.builders = make(map[string]BuilderFunc, 0)
+	g.rules = make(map[string]*parseAction, 0)
 	g.pos = pos
 
 	bg := &G{
@@ -328,6 +324,7 @@ func buildGrammar(pos *filePosition, stub func(*G)) *Grammar {
 		callPos:    make(map[string][]*filePosition, 0),
 		capturePos: make(map[string][]*filePosition, 0),
 		builderPos: make(map[string]*filePosition, 0),
+		rulePos:    make(map[string]*filePosition, 0),
 	}
 
 	if stub == nil {
@@ -336,24 +333,24 @@ func buildGrammar(pos *filePosition, stub func(*G)) *Grammar {
 
 	stub(bg)
 
-	g.start = g.nameIdx[bg.Start]
-	g.logFunc = bg.LogFunc
-
-	if bg.Start == "" && len(g.names) == 1 {
-		bg.Start = g.names[0]
+	if bg.Start == "" && len(g.rules) == 1 {
+		for k := range g.rules {
+			bg.Start = k
+			break
+		}
 	}
 
 	for name, pos := range bg.callPos {
-		if _, ok := g.nameIdx[name]; !ok {
+		if _, ok := g.rules[name]; !ok {
 			for _, p := range pos {
 				bg.Errorf(p, "missing rule %q", name)
 			}
 		}
 	}
 
-	for n, name := range g.names {
+	for name := range g.rules {
 		if name != bg.Start && bg.callPos[name] == nil {
-			p := bg.rulePos[n]
+			p := bg.rulePos[name]
 			bg.Errorf(p, "unused rule %q", name)
 		}
 	}
@@ -377,13 +374,17 @@ func buildGrammar(pos *filePosition, stub func(*G)) *Grammar {
 
 	if bg.Start == "" {
 		bg.Error(g.pos, "starting rule undefined")
-	} else if _, ok := g.nameIdx[bg.Start]; !ok {
+	} else if _, ok := g.rules[bg.Start]; !ok {
 		bg.Errorf(g.pos, "starting rule %q is missing", bg.Start)
 	}
 
 	if g.err != nil {
 		return &Grammar{err: g.err}
 	}
+
+	g.start = bg.Start
+	g.logFunc = bg.LogFunc
+
 	return g
 }
 
@@ -392,7 +393,7 @@ func buildGrammar(pos *filePosition, stub func(*G)) *Grammar {
 type nodeBuilder struct {
 	kind   string
 	parent *nodeBuilder
-	rule   *int
+	rule   *string
 	args   []*parseAction
 }
 
@@ -440,8 +441,9 @@ type G struct {
 
 	callPos    map[string][]*filePosition
 	capturePos map[string][]*filePosition
+
 	builderPos map[string]*filePosition
-	rulePos    []*filePosition
+	rulePos    map[string]*filePosition
 
 	nb *nodeBuilder
 	n  int
@@ -537,7 +539,7 @@ func (g *G) markPosition(actionKind string) *filePosition {
 	pos := getCallerPosition(2, actionKind)
 	rule := g.nb.rule
 	if rule != nil {
-		pos.inside = &g.grammar.names[*rule]
+		pos.inside = rule
 	}
 	pos.n = g.n
 	g.n++
@@ -546,7 +548,7 @@ func (g *G) markPosition(actionKind string) *filePosition {
 }
 
 func (g *G) buildStub(kind string, stub func()) *nodeBuilder {
-	var rule *int
+	var rule *string
 	oldNb := g.nb
 	if oldNb != nil {
 		rule = oldNb.rule
@@ -558,7 +560,7 @@ func (g *G) buildStub(kind string, stub func()) *nodeBuilder {
 	return newNb
 }
 
-func (g *G) buildRule(rule int, stub func()) *nodeBuilder {
+func (g *G) buildRule(rule string, stub func()) *nodeBuilder {
 	oldNb := g.nb
 	newNb := &nodeBuilder{kind: defineAction, rule: &rule, parent: oldNb}
 	g.nb = newNb
@@ -582,19 +584,15 @@ func (g *G) Define(name string, stub func()) {
 		return
 	}
 
-	if old, ok := g.grammar.nameIdx[name]; ok {
-		oldPos := g.rulePos[old]
+	if oldPos, ok := g.rulePos[name]; ok {
 		g.Errorf(p, "cant redefine %q, already defined at %v", name, oldPos)
 		return
 	}
 
-	ruleNum := len(g.grammar.names)
-	g.grammar.names = append(g.grammar.names, name)
-	g.grammar.nameIdx[name] = ruleNum
-	g.rulePos = append(g.rulePos, p)
+	g.rulePos[name] = p
 
-	r := g.buildRule(ruleNum, stub)
-	g.grammar.rules = append(g.grammar.rules, r.buildSequence(p))
+	r := g.buildRule(name, stub)
+	g.grammar.rules[name] = r.buildSequence(p)
 }
 
 func (g *G) Print(args ...any) {
@@ -1119,7 +1117,7 @@ func (g *G) Builder(name string, stub BuilderFunc) {
 type parseFunc func(*parserInput, *parserState) bool
 
 type parserInput struct {
-	rules        []parseFunc
+	rules        map[string]parseFunc
 	buf          string
 	length       int
 	columnParser columnParserFunc
@@ -1382,14 +1380,13 @@ func buildAction(g *Grammar, a *parseAction) parseFunc {
 		prefix := a.pos
 
 		name := a.name
-		idx := g.nameIdx[name]
 		fn := g.logFunc
 		return func(i *parserInput, s *parserState) bool {
 			if s.trace {
 				fn("%v: Call(%q) starting, at offset %v\n", prefix, name, s.offset)
 			}
 
-			rule := i.rules[idx] // can't move this out to runtime unless we reorder defs
+			rule := i.rules[name] // can't move this out to runtime unless we reorder defs
 			oldChoice := s.choiceExit
 			s.choiceExit = false
 
@@ -1756,8 +1753,8 @@ func buildAction(g *Grammar, a *parseAction) parseFunc {
 }
 
 type Parser struct {
-	rules    []parseFunc
-	start    int
+	rules    map[string]parseFunc
+	start    string
 	builders map[string]BuilderFunc
 	grammar  *Grammar
 	err      error
@@ -1789,8 +1786,7 @@ func (p *Parser) ParseTree(s string) (*ParseTree, error) {
 
 	complete := rule(input, state) && atEnd(input, state)
 	if complete {
-		name := p.grammar.names[p.start]
-		n := state.finalNode(name)
+		n := state.finalNode(p.start)
 		return &ParseTree{root: n, buf: s, nodes: state.nodes}, nil
 	}
 	return nil, ParseError
@@ -1825,11 +1821,10 @@ func (p *Parser) testRule(name string, accept []string, reject []string) bool {
 	if p.err != nil {
 		return false
 	}
-	n, ok := p.grammar.nameIdx[name]
+	start, ok := p.rules[name]
 	if !ok {
 		return false
 	}
-	start := p.rules[n]
 	return p.testParseFunc(start, accept, reject)
 }
 
