@@ -133,7 +133,7 @@ func BuildParser(stub func(*G)) *Parser {
 }
 
 //
-//  	Grammar Builder
+//  	Grammar Modes
 //
 
 type ParserMode interface {
@@ -267,6 +267,10 @@ func (m *textMode) getTabstop() int {
 	return m.tabstop
 }
 
+// ---
+
+type BuilderFunc func(string, []any) (any, error)
+
 type filePosition struct {
 	file   string
 	line   int
@@ -285,6 +289,27 @@ func (e *grammarError) Error() string {
 	p := e.g.posInfo[e.pos]
 	prefix := e.g.formatPosition(&p)
 	return fmt.Sprintf("%v: error in %v(): %v", prefix, p.action, e.message)
+}
+
+type parseAction struct {
+	// this is a 'wide style' variant struct
+
+	kind    string
+	pos     int
+	name    string         // call, capture
+	args    []*parseAction // choice, seq, cap
+	strings []string
+	ranges  []string
+	bytes   [][]byte
+
+	stringSwitch map[string]*parseAction
+	runeSwitch   map[rune]*parseAction
+	byteSwitch   map[byte]*parseAction
+
+	min      int
+	max      int
+	inverted bool
+	message  []any
 }
 
 type nodeBuilder struct {
@@ -326,8 +351,6 @@ func (b *nodeBuilder) nestedInside(k string) bool {
 	}
 	return false
 }
-
-type BuilderFunc func(string, []any) (any, error)
 
 type Grammar struct {
 	g      *G
@@ -1138,488 +1161,45 @@ func (g *G) Builder(name string, stub BuilderFunc) {
 //  	Parser
 //
 
-type parseFunc func(*parserState) bool
-
-type parseAction struct {
-	// this is a 'wide style' variant struct
-
-	kind    string
-	pos     int
-	name    string         // call, capture
-	args    []*parseAction // choice, seq, cap
-	strings []string
-	ranges  []string
-	bytes   [][]byte
-
-	stringSwitch map[string]*parseAction
-	runeSwitch   map[rune]*parseAction
-	byteSwitch   map[byte]*parseAction
-
-	min      int
-	max      int
-	inverted bool
-	message  []any
-}
-
-func buildAction(g *G, a *parseAction) parseFunc {
-	if a == nil {
-		// when a func() stub has no rules
-		return func(s *parserState) bool {
-			return true
-		}
-	}
-	switch a.kind {
-	case printAction:
-		p := g.posInfo[a.pos]
-		prefix := g.formatPosition(&p)
-		fn := g.LogFunc
-		return func(s *parserState) bool {
-			msg := fmt.Sprint(a.message...)
-			fn("%v: Print(%q) called, at offset %v, column %v\n", prefix, msg, s.offset, s.column)
-			return true
-		}
-	case traceAction:
-		p := g.posInfo[a.pos]
-		prefix := g.formatPosition(&p)
-		fn := g.LogFunc
-
-		rules := make([]parseFunc, len(a.args))
-		for i, r := range a.args {
-			rules[i] = buildAction(g, r)
-		}
-
-		return func(s *parserState) bool {
-			fn("%v: Trace() starting, at offset %v\n", prefix, s.offset)
-			result := true
-
-			var s1 parserState
-			s.copyInto(&s1)
-			s1.trace = true
-			for _, v := range rules {
-				if !v(&s1) {
-					result = false
-					break
-				}
-			}
-			if result {
-				s1.trace = false
-				fn("%v: Trace() ending, at offset %v\n", prefix, s1.offset)
-				s.merge(&s1)
-			} else {
-				s.choiceExit = s1.choiceExit
-				fn("%v: Trace() failing, at offset %v\n", prefix, s.offset)
-			}
-			return result
-		}
-	case callAction:
-		p := g.posInfo[a.pos]
-		prefix := g.formatPosition(&p)
-
-		name := a.name
-		idx := g.nameIdx[name]
-		fn := g.LogFunc
-		return func(s *parserState) bool {
-			if s.trace {
-				fn("%v: Call(%q) starting, at offset %v\n", prefix, name, s.offset)
-			}
-
-			rule := s.i.rules[idx] // can't move this out to runtime unless we reorder defs
-			oldChoice := s.choiceExit
-			s.choiceExit = false
-
-			out := rule(s)
-			s.choiceExit = oldChoice
-
-			if s.trace {
-				if out {
-					fn("%v: Call(%q) exiting, at offset %v\n", prefix, name, s.offset)
-				} else {
-					fn("%v: Call(%q) failing, at offset %v\n", prefix, name, s.offset)
-				}
-			}
-			return out
-		}
-
-	// case partialTabAction
-	// case indentAction
-	// case dedentAction
-
-	case whitespaceAction:
-		ws := g.Mode.getWhitespace()
-		return func(s *parserState) bool {
-			for {
-				if !s.acceptAny(ws) {
-					break
-				}
-			}
-			return true
-		}
-	case endOfLineAction, newlineAction:
-		nl := g.Mode.getNewlines()
-		return func(s *parserState) bool {
-			return s.acceptAny(nl)
-		}
-
-	case startOfLineAction:
-		return func(s *parserState) bool {
-			return s.column == 0
-		}
-	case startOfFileAction:
-		return func(s *parserState) bool {
-			return s.offset == 0
-		}
-	case endOfFileAction:
-		return func(s *parserState) bool {
-			return s.offset == s.i.length
-		}
-
-	case runeAction:
-		return func(s *parserState) bool {
-			if s.atEnd() {
-				return false
-			}
-			_, n := s.peekRune()
-			s.advance(n)
-			return true
-		}
-	case byteAction:
-		return func(s *parserState) bool {
-			if s.atEnd() {
-				return false
-			}
-			s.advance(1)
-			return true
-		}
-	case stringAction:
-		return func(s *parserState) bool {
-			for _, v := range a.strings {
-				if s.acceptString(v) {
-					return true
-				}
-			}
-			return false
-		}
-	case byteListAction, byteStringAction:
-		return func(s *parserState) bool {
-			for _, v := range a.bytes {
-				if s.acceptBytes(v) {
-					return true
-				}
-			}
-			return false
-		}
-	case peekStringAction:
-		rules := make(map[string]parseFunc, len(a.stringSwitch))
-		size := 0
-		for i, r := range a.stringSwitch {
-			rules[i] = buildAction(g, r)
-			if len(i) > size {
-				size = len(i)
-			}
-		}
-		return func(s *parserState) bool {
-			if s.atEnd() {
-				return false
-			}
-			r := s.peekString(size)
-
-			if fn, ok := rules[r]; ok {
-				return fn(s)
-			}
-
-			return false
-		}
-	case peekRuneAction:
-		rules := make(map[rune]parseFunc, len(a.runeSwitch))
-		for i, r := range a.runeSwitch {
-			rules[i] = buildAction(g, r)
-		}
-		return func(s *parserState) bool {
-			if s.atEnd() {
-				return false
-			}
-			r, _ := s.peekRune()
-
-			if fn, ok := rules[r]; ok {
-				return fn(s)
-			}
-
-			return false
-		}
-	case peekByteAction:
-		rules := make(map[byte]parseFunc, len(a.byteSwitch))
-		for i, r := range a.byteSwitch {
-			rules[i] = buildAction(g, r)
-		}
-		return func(s *parserState) bool {
-			if s.atEnd() {
-				return false
-			}
-			r := s.peekByte()
-
-			if fn, ok := rules[r]; ok {
-				return fn(s)
-			}
-
-			return false
-		}
-	case rangeAction:
-		inverted := a.inverted
-		runeRanges := make([][]rune, len(a.ranges))
-		for i, v := range a.ranges {
-			n := []rune(v)
-			if len(n) == 1 {
-				runeRanges[i] = []rune{n[0], n[0]}
-			} else {
-				runeRanges[i] = []rune{n[0], n[2]}
-			}
-		}
-		return func(s *parserState) bool {
-			if s.atEnd() {
-				return false
-			}
-			r, size := s.peekRune()
-			result := false
-			for _, v := range runeRanges {
-				minR := v[0]
-				maxR := v[1]
-				if r >= minR && r <= maxR {
-					result = true
-					break
-				}
-			}
-			if inverted {
-				result = !result
-			}
-
-			if result {
-				s.advance(size)
-				return true
-			}
-
-			return false
-		}
-	case byteRangeAction:
-		inverted := a.inverted
-		byteRanges := make([][]byte, len(a.ranges))
-		for i, v := range a.ranges {
-			n := []byte(v)
-			if len(n) == 1 {
-				byteRanges[i] = []byte{n[0], n[0]}
-			} else {
-				byteRanges[i] = []byte{n[0], n[2]}
-			}
-		}
-		return func(s *parserState) bool {
-			if s.atEnd() {
-				return false
-			}
-			r := s.peekByte()
-			result := false
-			for _, v := range byteRanges {
-				minR := v[0]
-				maxR := v[1]
-				if r >= minR && r <= maxR {
-					result = true
-					break
-				}
-			}
-			if inverted {
-				result = !result
-			}
-
-			if result {
-				s.advance(1)
-				return true
-			}
-
-			return false
-		}
-	case optionalAction:
-		rules := make([]parseFunc, len(a.args))
-		for i, r := range a.args {
-			rules[i] = buildAction(g, r)
-		}
-		return func(s *parserState) bool {
-			var s1 parserState
-			s.copyInto(&s1)
-			for _, r := range rules {
-				if !r(&s1) {
-					s.choiceExit = s1.choiceExit
-					return true
-				}
-			}
-			s.choiceExit = s1.choiceExit
-			s.merge(&s1)
-			return true
-		}
-	case lookaheadAction:
-		rules := make([]parseFunc, len(a.args))
-		for i, r := range a.args {
-			rules[i] = buildAction(g, r)
-		}
-		return func(s *parserState) bool {
-			var s1 parserState
-			s.copyInto(&s1)
-			for _, r := range rules {
-				if !r(&s1) {
-					s.choiceExit = s1.choiceExit
-					return false
-				}
-			}
-			s.choiceExit = s1.choiceExit
-			return true
-		}
-	case rejectAction:
-		rules := make([]parseFunc, len(a.args))
-		for i, r := range a.args {
-			rules[i] = buildAction(g, r)
-		}
-		return func(s *parserState) bool {
-			var s1 parserState
-			s.copyInto(&s1)
-			for _, r := range rules {
-				if !r(&s1) {
-					s.choiceExit = s1.choiceExit
-					return true
-				}
-			}
-			s.choiceExit = s1.choiceExit
-			return false
-		}
-
-	case repeatAction:
-		rules := make([]parseFunc, len(a.args))
-		for i, r := range a.args {
-			rules[i] = buildAction(g, r)
-		}
-		min_n := a.min
-		max_n := a.max
-
-		return func(s *parserState) bool {
-			c := 0
-			var s1 parserState
-			s.copyInto(&s1)
-			for {
-				for _, r := range rules {
-					if !r(&s1) {
-						s.choiceExit = s1.choiceExit
-						return c >= min_n
-					}
-				}
-				if c >= min_n {
-					s.merge(&s1)
-				} else {
-					s.choiceExit = s1.choiceExit
-				}
-
-				if max_n != 0 && c >= max_n {
-					break
-				}
-			}
-			return c >= min_n
-		}
-
-	case cutAction:
-		return func(s *parserState) bool {
-			s.choiceExit = true
-			return true
-		}
-	case choiceAction:
-		rules := make([]parseFunc, len(a.args))
-		for i, r := range a.args {
-			rules[i] = buildAction(g, r)
-		}
-		return func(s *parserState) bool {
-			for _, r := range rules {
-				var s1 parserState
-				s.copyInto(&s1)
-				s1.choiceExit = false
-				if r(&s1) {
-					s1.choiceExit = s.choiceExit
-					s.merge(&s1)
-					return true
-				}
-				s.trim(&s1)
-				if s1.choiceExit {
-					break
-				}
-			}
-			return false
-		}
-	case sequenceAction:
-		rules := make([]parseFunc, len(a.args))
-		for i, r := range a.args {
-			rules[i] = buildAction(g, r)
-		}
-		return func(s *parserState) bool {
-			var s1 parserState
-			s.copyInto(&s1)
-			for _, r := range rules {
-				if !r(&s1) {
-					s.choiceExit = s1.choiceExit
-					return false
-				}
-			}
-			s.merge(&s1)
-			return true
-		}
-	case captureAction:
-		rules := make([]parseFunc, len(a.args))
-		for i, r := range a.args {
-			rules[i] = buildAction(g, r)
-		}
-		return func(s *parserState) bool {
-			var s1 parserState
-			s.startCapture(&s1)
-			for _, r := range rules {
-				if !r(&s1) {
-					s.choiceExit = s1.choiceExit
-					return false
-				}
-			}
-			s.choiceExit = s1.choiceExit
-			s.mergeCapture(a.name, &s1)
-			return true
-		}
-	default:
-		return func(s *parserState) bool {
-			return true
-		}
-	}
-}
-
-type columnParserFunc func(string, int, int, int, int) int
-
-func textModeColumnParser(buf string, column int, tabstop int, oldOffset int, newOffset int) int {
-	for i := oldOffset; i < newOffset; i++ {
-		switch buf[i] {
-		case byte('\t'):
-			width := tabstop - (column % tabstop)
-			column += width
-		case byte('\r'):
-			column = 0
-		case byte('\n'):
-			if i > 1 && buf[i-1] != byte('\r') {
-				column = 0
-			}
-
-		default:
-			column += 1
-		}
-	}
-	return column
-}
+type parseFunc func(*parserInput, *parserState) bool
 
 type parserInput struct {
 	rules        []parseFunc
 	buf          string
 	length       int
 	columnParser columnParserFunc
+	tabstop      int
+}
+
+func atEnd(i *parserInput, s *parserState) bool {
+	return s.offset >= i.length
+}
+
+func peekByte(i *parserInput, s *parserState) byte {
+	return i.buf[s.offset]
+}
+
+func peekString(i *parserInput, s *parserState, n int) string {
+	end := s.offset + n
+	if end > i.length {
+		end = i.length
+	}
+	return i.buf[s.offset:end]
+}
+
+func peekBytes(i *parserInput, s *parserState, n int) []byte {
+	end := s.offset + n
+	if end > i.length {
+		end = i.length
+	}
+	return []byte(i.buf[s.offset:end])
+}
+
+func peekRune(i *parserInput, s *parserState) (rune, int) {
+	return utf8.DecodeRuneInString(i.buf[s.offset:])
 }
 
 type parserState struct {
-	i      *parserInput
 	offset int
 
 	choiceExit bool
@@ -1645,24 +1225,62 @@ type parserState struct {
 
 }
 
-func (s *parserState) copyInto(into *parserState) {
+func advanceState(i *parserInput, s *parserState, length int) {
+	newOffset := s.offset + length
+	if i.columnParser != nil {
+		s.column = i.columnParser(i.buf, s.column, i.tabstop, s.offset, newOffset)
+	}
+	s.offset = newOffset
+
+}
+
+func acceptString(i *parserInput, s *parserState, v string) bool {
+	length_v := len(v)
+	b := peekString(i, s, length_v)
+	if b == v {
+		advanceState(i, s, length_v)
+		return true
+	}
+	return false
+}
+func acceptBytes(i *parserInput, s *parserState, v []byte) bool {
+	length_v := len(v)
+	b := peekString(i, s, length_v)
+	if b == string(v) {
+		advanceState(i, s, length_v)
+		return true
+	}
+	return false
+}
+
+func acceptAny(i *parserInput, s *parserState, o []string) bool {
+	for _, v := range o {
+		if acceptString(i, s, v) {
+			return true
+		}
+	}
+	return false
+}
+
+func copyState(s *parserState, into *parserState) {
 	*into = *s
 }
 
-func (s *parserState) merge(new *parserState) {
+func mergeState(s *parserState, new *parserState) {
 	*s = *new
 }
-func (s *parserState) trim(new *parserState) {
-	s.nodes = s.nodes[:s.numNodes]
-}
-func (s *parserState) startCapture(st *parserState) {
+
+func startCapture(s *parserState, st *parserState) {
 	*st = *s
-	// st.children = []int{}
 	st.countSibling = 0
 	st.lastSibling = 0
 }
 
-func (s *parserState) mergeCapture(name string, new *parserState) {
+func trimCapture(s *parserState, new *parserState) {
+	s.nodes = s.nodes[:s.numNodes]
+}
+
+func mergeCapture(s *parserState, name string, new *parserState) {
 
 	nextSibling := new.lastSibling
 	lastSibling := 0
@@ -1699,7 +1317,7 @@ func (s *parserState) mergeCapture(name string, new *parserState) {
 
 }
 
-func (s *parserState) captureNode(name string) int {
+func (s *parserState) finalNode(name string) int {
 	if s.countSibling == 1 {
 		return s.lastSibling
 	} else {
@@ -1735,66 +1353,454 @@ func (s *parserState) captureNode(name string) int {
 	}
 }
 
-func (s *parserState) atEnd() bool {
-	return s.offset >= s.i.length
+type columnParserFunc func(string, int, int, int, int) int
+
+func textModeColumnParser(buf string, column int, tabstop int, oldOffset int, newOffset int) int {
+	for i := oldOffset; i < newOffset; i++ {
+		switch buf[i] {
+		case byte('\t'):
+			width := tabstop - (column % tabstop)
+			column += width
+		case byte('\r'):
+			column = 0
+		case byte('\n'):
+			if i > 1 && buf[i-1] != byte('\r') {
+				column = 0
+			}
+
+		default:
+			column += 1
+		}
+	}
+	return column
 }
 
-func (s *parserState) peekByte() byte {
-	return s.i.buf[s.offset]
-}
-func (s *parserState) peekString(n int) string {
-	end := s.offset + n
-	if end > s.i.length {
-		end = s.i.length
-	}
-	return s.i.buf[s.offset:end]
-}
-
-func (s *parserState) peekRune() (rune, int) {
-	return utf8.DecodeRuneInString(s.i.buf[s.offset:])
-}
-
-func (s *parserState) advance(length int) {
-	newOffset := s.offset + length
-	if s.i.columnParser != nil {
-		s.column = s.i.columnParser(s.i.buf, s.column, s.tabstop, s.offset, newOffset)
-	}
-	s.offset = newOffset
-
-}
-
-func (s *parserState) acceptString(v string) bool {
-	length_v := len(v)
-	if length_v+s.offset > s.i.length {
-		return false
-	}
-	b := s.i.buf[s.offset : s.offset+length_v]
-	if b == v {
-		s.advance(length_v)
-		return true
-	}
-	return false
-}
-func (s *parserState) acceptBytes(v []byte) bool {
-	length_v := len(v)
-	if length_v+s.offset > s.i.length {
-		return false
-	}
-	b := s.i.buf[s.offset : s.offset+length_v]
-	if b == string(v) {
-		s.advance(length_v)
-		return true
-	}
-	return false
-}
-
-func (s *parserState) acceptAny(o []string) bool {
-	for _, v := range o {
-		if s.acceptString(v) {
+func buildAction(g *G, a *parseAction) parseFunc {
+	if a == nil {
+		// when a func() stub has no rules
+		return func(i *parserInput, s *parserState) bool {
 			return true
 		}
 	}
-	return false
+	switch a.kind {
+	case printAction:
+		p := g.posInfo[a.pos]
+		prefix := g.formatPosition(&p)
+		fn := g.LogFunc
+		return func(i *parserInput, s *parserState) bool {
+			msg := fmt.Sprint(a.message...)
+			fn("%v: Print(%q) called, at offset %v, column %v\n", prefix, msg, s.offset, s.column)
+			return true
+		}
+	case traceAction:
+		p := g.posInfo[a.pos]
+		prefix := g.formatPosition(&p)
+		fn := g.LogFunc
+
+		rules := make([]parseFunc, len(a.args))
+		for i, r := range a.args {
+			rules[i] = buildAction(g, r)
+		}
+
+		return func(i *parserInput, s *parserState) bool {
+			fn("%v: Trace() starting, at offset %v\n", prefix, s.offset)
+			result := true
+
+			var s1 parserState
+			copyState(s, &s1)
+			s1.trace = true
+			for _, v := range rules {
+				if !v(i, &s1) {
+					result = false
+					break
+				}
+			}
+			if result {
+				s1.trace = false
+				fn("%v: Trace() ending, at offset %v\n", prefix, s1.offset)
+				mergeState(s, &s1)
+			} else {
+				s.choiceExit = s1.choiceExit
+				fn("%v: Trace() failing, at offset %v\n", prefix, s.offset)
+			}
+			return result
+		}
+	case callAction:
+		p := g.posInfo[a.pos]
+		prefix := g.formatPosition(&p)
+
+		name := a.name
+		idx := g.nameIdx[name]
+		fn := g.LogFunc
+		return func(i *parserInput, s *parserState) bool {
+			if s.trace {
+				fn("%v: Call(%q) starting, at offset %v\n", prefix, name, s.offset)
+			}
+
+			rule := i.rules[idx] // can't move this out to runtime unless we reorder defs
+			oldChoice := s.choiceExit
+			s.choiceExit = false
+
+			out := rule(i, s)
+			s.choiceExit = oldChoice
+
+			if s.trace {
+				if out {
+					fn("%v: Call(%q) exiting, at offset %v\n", prefix, name, s.offset)
+				} else {
+					fn("%v: Call(%q) failing, at offset %v\n", prefix, name, s.offset)
+				}
+			}
+			return out
+		}
+
+	// case partialTabAction
+	// case indentAction
+	// case dedentAction
+
+	case whitespaceAction:
+		ws := g.Mode.getWhitespace()
+		return func(i *parserInput, s *parserState) bool {
+			for {
+				if !acceptAny(i, s, ws) {
+					break
+				}
+			}
+			return true
+		}
+	case endOfLineAction, newlineAction:
+		nl := g.Mode.getNewlines()
+		return func(i *parserInput, s *parserState) bool {
+			return acceptAny(i, s, nl)
+		}
+
+	case startOfLineAction:
+		return func(i *parserInput, s *parserState) bool {
+			return s.column == 0
+		}
+	case startOfFileAction:
+		return func(i *parserInput, s *parserState) bool {
+			return s.offset == 0
+		}
+	case endOfFileAction:
+		return func(i *parserInput, s *parserState) bool {
+			return s.offset == i.length
+		}
+
+	case runeAction:
+		return func(i *parserInput, s *parserState) bool {
+			if atEnd(i, s) {
+				return false
+			}
+			_, n := peekRune(i, s)
+			advanceState(i, s, n)
+			return true
+		}
+	case byteAction:
+		return func(i *parserInput, s *parserState) bool {
+			if atEnd(i, s) {
+				return false
+			}
+			advanceState(i, s, 1)
+			return true
+		}
+	case stringAction:
+		return func(i *parserInput, s *parserState) bool {
+			for _, v := range a.strings {
+				if acceptString(i, s, v) {
+					return true
+				}
+			}
+			return false
+		}
+	case byteListAction, byteStringAction:
+		return func(i *parserInput, s *parserState) bool {
+			for _, v := range a.bytes {
+				if acceptBytes(i, s, v) {
+					return true
+				}
+			}
+			return false
+		}
+	case peekStringAction:
+		rules := make(map[string]parseFunc, len(a.stringSwitch))
+		size := 0
+		for i, r := range a.stringSwitch {
+			rules[i] = buildAction(g, r)
+			if len(i) > size {
+				size = len(i)
+			}
+		}
+		return func(i *parserInput, s *parserState) bool {
+			if atEnd(i, s) {
+				return false
+			}
+			r := peekString(i, s, size)
+
+			if fn, ok := rules[r]; ok {
+				return fn(i, s)
+			}
+
+			return false
+		}
+	case peekRuneAction:
+		rules := make(map[rune]parseFunc, len(a.runeSwitch))
+		for i, r := range a.runeSwitch {
+			rules[i] = buildAction(g, r)
+		}
+		return func(i *parserInput, s *parserState) bool {
+			if atEnd(i, s) {
+				return false
+			}
+			r, _ := peekRune(i, s)
+
+			if fn, ok := rules[r]; ok {
+				return fn(i, s)
+			}
+
+			return false
+		}
+	case peekByteAction:
+		rules := make(map[byte]parseFunc, len(a.byteSwitch))
+		for i, r := range a.byteSwitch {
+			rules[i] = buildAction(g, r)
+		}
+		return func(i *parserInput, s *parserState) bool {
+			if atEnd(i, s) {
+				return false
+			}
+			r := peekByte(i, s)
+
+			if fn, ok := rules[r]; ok {
+				return fn(i, s)
+			}
+
+			return false
+		}
+	case rangeAction:
+		inverted := a.inverted
+		runeRanges := make([][]rune, len(a.ranges))
+		for i, v := range a.ranges {
+			n := []rune(v)
+			if len(n) == 1 {
+				runeRanges[i] = []rune{n[0], n[0]}
+			} else {
+				runeRanges[i] = []rune{n[0], n[2]}
+			}
+		}
+		return func(i *parserInput, s *parserState) bool {
+			if atEnd(i, s) {
+				return false
+			}
+			r, size := peekRune(i, s)
+			result := false
+			for _, v := range runeRanges {
+				minR := v[0]
+				maxR := v[1]
+				if r >= minR && r <= maxR {
+					result = true
+					break
+				}
+			}
+			if inverted {
+				result = !result
+			}
+
+			if result {
+				advanceState(i, s, size)
+				return true
+			}
+
+			return false
+		}
+	case byteRangeAction:
+		inverted := a.inverted
+		byteRanges := make([][]byte, len(a.ranges))
+		for i, v := range a.ranges {
+			n := []byte(v)
+			if len(n) == 1 {
+				byteRanges[i] = []byte{n[0], n[0]}
+			} else {
+				byteRanges[i] = []byte{n[0], n[2]}
+			}
+		}
+		return func(i *parserInput, s *parserState) bool {
+			if atEnd(i, s) {
+				return false
+			}
+			r := peekByte(i, s)
+			result := false
+			for _, v := range byteRanges {
+				minR := v[0]
+				maxR := v[1]
+				if r >= minR && r <= maxR {
+					result = true
+					break
+				}
+			}
+			if inverted {
+				result = !result
+			}
+
+			if result {
+				advanceState(i, s, 1)
+				return true
+			}
+
+			return false
+		}
+	case optionalAction:
+		rules := make([]parseFunc, len(a.args))
+		for i, r := range a.args {
+			rules[i] = buildAction(g, r)
+		}
+		return func(i *parserInput, s *parserState) bool {
+			var s1 parserState
+			copyState(s, &s1)
+			for _, r := range rules {
+				if !r(i, &s1) {
+					s.choiceExit = s1.choiceExit
+					return true
+				}
+			}
+			s.choiceExit = s1.choiceExit
+			mergeState(s, &s1)
+			return true
+		}
+	case lookaheadAction:
+		rules := make([]parseFunc, len(a.args))
+		for i, r := range a.args {
+			rules[i] = buildAction(g, r)
+		}
+		return func(i *parserInput, s *parserState) bool {
+			var s1 parserState
+			copyState(s, &s1)
+			for _, r := range rules {
+				if !r(i, &s1) {
+					s.choiceExit = s1.choiceExit
+					return false
+				}
+			}
+			s.choiceExit = s1.choiceExit
+			return true
+		}
+	case rejectAction:
+		rules := make([]parseFunc, len(a.args))
+		for i, r := range a.args {
+			rules[i] = buildAction(g, r)
+		}
+		return func(i *parserInput, s *parserState) bool {
+			var s1 parserState
+			copyState(s, &s1)
+			for _, r := range rules {
+				if !r(i, &s1) {
+					s.choiceExit = s1.choiceExit
+					return true
+				}
+			}
+			s.choiceExit = s1.choiceExit
+			return false
+		}
+
+	case repeatAction:
+		rules := make([]parseFunc, len(a.args))
+		for i, r := range a.args {
+			rules[i] = buildAction(g, r)
+		}
+		min_n := a.min
+		max_n := a.max
+
+		return func(i *parserInput, s *parserState) bool {
+			c := 0
+			var s1 parserState
+			copyState(s, &s1)
+			for {
+				for _, r := range rules {
+					if !r(i, &s1) {
+						s.choiceExit = s1.choiceExit
+						return c >= min_n
+					}
+				}
+				if c >= min_n {
+					mergeState(s, &s1)
+				} else {
+					s.choiceExit = s1.choiceExit
+				}
+
+				if max_n != 0 && c >= max_n {
+					break
+				}
+			}
+			return c >= min_n
+		}
+
+	case cutAction:
+		return func(i *parserInput, s *parserState) bool {
+			s.choiceExit = true
+			return true
+		}
+	case choiceAction:
+		rules := make([]parseFunc, len(a.args))
+		for i, r := range a.args {
+			rules[i] = buildAction(g, r)
+		}
+		return func(i *parserInput, s *parserState) bool {
+			for _, r := range rules {
+				var s1 parserState
+				copyState(s, &s1)
+				s1.choiceExit = false
+				if r(i, &s1) {
+					s1.choiceExit = s.choiceExit
+					mergeState(s, &s1)
+					return true
+				}
+				trimCapture(s, &s1)
+				if s1.choiceExit {
+					break
+				}
+			}
+			return false
+		}
+	case sequenceAction:
+		rules := make([]parseFunc, len(a.args))
+		for i, r := range a.args {
+			rules[i] = buildAction(g, r)
+		}
+		return func(i *parserInput, s *parserState) bool {
+			var s1 parserState
+			copyState(s, &s1)
+			for _, r := range rules {
+				if !r(i, &s1) {
+					s.choiceExit = s1.choiceExit
+					return false
+				}
+			}
+			mergeState(s, &s1)
+			return true
+		}
+	case captureAction:
+		rules := make([]parseFunc, len(a.args))
+		for i, r := range a.args {
+			rules[i] = buildAction(g, r)
+		}
+		return func(i *parserInput, s *parserState) bool {
+			var s1 parserState
+			startCapture(s, &s1)
+			for _, r := range rules {
+				if !r(i, &s1) {
+					s.choiceExit = s1.choiceExit
+					return false
+				}
+			}
+			s.choiceExit = s1.choiceExit
+			mergeCapture(s, a.name, &s1)
+			return true
+		}
+	default:
+		return func(i *parserInput, s *parserState) bool {
+			return true
+		}
+	}
 }
 
 type Parser struct {
@@ -1809,28 +1815,31 @@ func (p *Parser) Err() error {
 	return p.err
 }
 
-func (p *Parser) newParserState(s string) *parserState {
+func (p *Parser) newParserInput(s string) *parserInput {
 	mode := p.grammar.Mode
 	i := &parserInput{
 		rules:        p.rules,
 		buf:          s,
 		length:       len(s),
 		columnParser: mode.getColumnParser(),
+		tabstop:      mode.getTabstop(),
 	}
-
-	return &parserState{i: i, tabstop: mode.getTabstop()}
+	return i
 }
 
 func (p *Parser) ParseTree(s string) (*ParseTree, error) {
 	if p.err != nil {
 		return nil, p.err
 	}
-	parserState := p.newParserState(s)
-	start := p.rules[p.start]
-	if start(parserState) && parserState.atEnd() {
+	input := p.newParserInput(s)
+	state := &parserState{}
+	rule := p.rules[p.start]
+
+	complete := rule(input, state) && atEnd(input, state)
+	if complete {
 		name := p.grammar.Start
-		n := parserState.captureNode(name)
-		return &ParseTree{root: n, buf: s, nodes: parserState.nodes}, nil
+		n := state.finalNode(name)
+		return &ParseTree{root: n, buf: s, nodes: state.nodes}, nil
 	}
 	return nil, ParseError
 }
@@ -1877,16 +1886,18 @@ func (p *Parser) testParseFunc(rule parseFunc, accept []string, reject []string)
 		return false
 	}
 	for _, s := range accept {
-		parserState := p.newParserState(s)
-		complete := rule(parserState) && parserState.atEnd()
+		input := p.newParserInput(s)
+		state := &parserState{}
+		complete := rule(input, state) && atEnd(input, state)
 
 		if !complete {
 			return false
 		}
 	}
 	for _, s := range reject {
-		parserState := p.newParserState(s)
-		complete := rule(parserState) && parserState.atEnd()
+		input := p.newParserInput(s)
+		state := &parserState{}
+		complete := rule(input, state) && atEnd(input, state)
 
 		if complete {
 			return false
