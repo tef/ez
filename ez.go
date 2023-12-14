@@ -575,7 +575,7 @@ func (g *G) parser() *Parser {
 	rules := make([]parseFunc, len(g.rules))
 
 	for k, v := range g.rules {
-		rules[k] = v.buildFunc(g)
+		rules[k] = buildAction(g, v)
 	}
 
 	start := g.nameIdx[g.Start]
@@ -1161,7 +1161,7 @@ type parseAction struct {
 	message  []any
 }
 
-func (a *parseAction) buildFunc(g *G) parseFunc {
+func buildAction(g *G, a *parseAction) parseFunc {
 	if a == nil {
 		// when a func() stub has no rules
 		return func(s *parserState) bool {
@@ -1185,7 +1185,7 @@ func (a *parseAction) buildFunc(g *G) parseFunc {
 
 		rules := make([]parseFunc, len(a.args))
 		for i, r := range a.args {
-			rules[i] = r.buildFunc(g)
+			rules[i] = buildAction(g, r)
 		}
 
 		return func(s *parserState) bool {
@@ -1312,7 +1312,7 @@ func (a *parseAction) buildFunc(g *G) parseFunc {
 		rules := make(map[string]parseFunc, len(a.stringSwitch))
 		size := 0
 		for i, r := range a.stringSwitch {
-			rules[i] = r.buildFunc(g)
+			rules[i] = buildAction(g, r)
 			if len(i) > size {
 				size = len(i)
 			}
@@ -1332,7 +1332,7 @@ func (a *parseAction) buildFunc(g *G) parseFunc {
 	case peekRuneAction:
 		rules := make(map[rune]parseFunc, len(a.runeSwitch))
 		for i, r := range a.runeSwitch {
-			rules[i] = r.buildFunc(g)
+			rules[i] = buildAction(g, r)
 		}
 		return func(s *parserState) bool {
 			if s.atEnd() {
@@ -1349,7 +1349,7 @@ func (a *parseAction) buildFunc(g *G) parseFunc {
 	case peekByteAction:
 		rules := make(map[byte]parseFunc, len(a.byteSwitch))
 		for i, r := range a.byteSwitch {
-			rules[i] = r.buildFunc(g)
+			rules[i] = buildAction(g, r)
 		}
 		return func(s *parserState) bool {
 			if s.atEnd() {
@@ -1438,7 +1438,7 @@ func (a *parseAction) buildFunc(g *G) parseFunc {
 	case optionalAction:
 		rules := make([]parseFunc, len(a.args))
 		for i, r := range a.args {
-			rules[i] = r.buildFunc(g)
+			rules[i] = buildAction(g, r)
 		}
 		return func(s *parserState) bool {
 			var s1 parserState
@@ -1456,7 +1456,7 @@ func (a *parseAction) buildFunc(g *G) parseFunc {
 	case lookaheadAction:
 		rules := make([]parseFunc, len(a.args))
 		for i, r := range a.args {
-			rules[i] = r.buildFunc(g)
+			rules[i] = buildAction(g, r)
 		}
 		return func(s *parserState) bool {
 			var s1 parserState
@@ -1473,7 +1473,7 @@ func (a *parseAction) buildFunc(g *G) parseFunc {
 	case rejectAction:
 		rules := make([]parseFunc, len(a.args))
 		for i, r := range a.args {
-			rules[i] = r.buildFunc(g)
+			rules[i] = buildAction(g, r)
 		}
 		return func(s *parserState) bool {
 			var s1 parserState
@@ -1491,7 +1491,7 @@ func (a *parseAction) buildFunc(g *G) parseFunc {
 	case repeatAction:
 		rules := make([]parseFunc, len(a.args))
 		for i, r := range a.args {
-			rules[i] = r.buildFunc(g)
+			rules[i] = buildAction(g, r)
 		}
 		min_n := a.min
 		max_n := a.max
@@ -1528,7 +1528,7 @@ func (a *parseAction) buildFunc(g *G) parseFunc {
 	case choiceAction:
 		rules := make([]parseFunc, len(a.args))
 		for i, r := range a.args {
-			rules[i] = r.buildFunc(g)
+			rules[i] = buildAction(g, r)
 		}
 		return func(s *parserState) bool {
 			for _, r := range rules {
@@ -1550,7 +1550,7 @@ func (a *parseAction) buildFunc(g *G) parseFunc {
 	case sequenceAction:
 		rules := make([]parseFunc, len(a.args))
 		for i, r := range a.args {
-			rules[i] = r.buildFunc(g)
+			rules[i] = buildAction(g, r)
 		}
 		return func(s *parserState) bool {
 			var s1 parserState
@@ -1567,7 +1567,7 @@ func (a *parseAction) buildFunc(g *G) parseFunc {
 	case captureAction:
 		rules := make([]parseFunc, len(a.args))
 		for i, r := range a.args {
-			rules[i] = r.buildFunc(g)
+			rules[i] = buildAction(g, r)
 		}
 		return func(s *parserState) bool {
 			var s1 parserState
