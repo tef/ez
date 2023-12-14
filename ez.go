@@ -277,7 +277,6 @@ type Grammar struct {
 	// list of pos for each name
 	posInfo    []*filePosition
 	rulePos    []int // posInfo[rulePos[ruleNum]]
-	callPos    map[string][]int
 	capturePos map[string][]int
 	builderPos map[string]int
 
@@ -324,9 +323,6 @@ func buildGrammar(pos *filePosition, stub func(*G)) *Grammar {
 	g := &Grammar{}
 	g.nameIdx = make(map[string]int, 0)
 	g.builders = make(map[string]BuilderFunc, 0)
-	g.callPos = make(map[string][]int, 0)
-	g.capturePos = make(map[string][]int, 0)
-	g.builderPos = make(map[string]int, 0)
 	g.posInfo = []*filePosition{pos}
 	g.pos = 0
 
@@ -335,6 +331,9 @@ func buildGrammar(pos *filePosition, stub func(*G)) *Grammar {
 		nb:      &nodeBuilder{kind: grammarAction},
 		LogFunc: Printf,
 		Mode:    TextMode(),
+		callPos: make(map[string][]int, 0),
+		capturePos: make(map[string][]int, 0),
+		builderPos: make(map[string]int, 0),
 	}
 
 	if stub == nil {
@@ -350,7 +349,7 @@ func buildGrammar(pos *filePosition, stub func(*G)) *Grammar {
 		bg.Start = g.names[0]
 	}
 
-	for name, pos := range g.callPos {
+	for name, pos := range bg.callPos {
 		if _, ok := g.nameIdx[name]; !ok {
 			for _, p := range pos {
 				bg.Errorf(p, "missing rule %q", name)
@@ -359,22 +358,22 @@ func buildGrammar(pos *filePosition, stub func(*G)) *Grammar {
 	}
 
 	for n, name := range g.names {
-		if name != bg.Start && g.callPos[name] == nil {
+		if name != bg.Start && bg.callPos[name] == nil {
 			p := g.rulePos[n]
 			bg.Errorf(p, "unused rule %q", name)
 		}
 	}
 
 	for name, _ := range g.builders {
-		if _, ok := g.capturePos[name]; !ok {
-			p := g.builderPos[name]
+		if _, ok := bg.capturePos[name]; !ok {
+			p := bg.builderPos[name]
 			bg.Errorf(p, "missing capture %q for builder", name)
 		}
 	}
 
 	if len(g.builders) > 0 {
-		for name, pos := range g.capturePos {
-			if _, ok := g.builderPos[name]; !ok {
+		for name, pos := range bg.capturePos {
+			if _, ok := bg.builderPos[name]; !ok {
 				for _, p := range pos {
 					bg.Errorf(p, "missing builder %q for capture", name)
 				}
@@ -444,6 +443,8 @@ type G struct {
 
 	Mode       GrammarMode
 	configmode GrammarMode
+
+	callPos    map[string][]int
 
 	nb *nodeBuilder
 }
@@ -939,7 +940,7 @@ func (g *G) Call(name string) {
 	if g.shouldExit(p, callAction) {
 		return
 	}
-	g.grammar.callPos[name] = append(g.grammar.callPos[name], p)
+	g.callPos[name] = append(g.callPos[name], p)
 	a := &parseAction{kind: callAction, name: name, pos: p}
 	g.nb.append(a)
 }
@@ -976,7 +977,7 @@ func (g *G) Capture(name string, stub func()) {
 		return
 	}
 
-	g.grammar.capturePos[name] = append(g.grammar.capturePos[name], p)
+	g.capturePos[name] = append(g.capturePos[name], p)
 
 	a := &parseAction{kind: captureAction, name: name, args: r.args, pos: p}
 	g.nb.append(a)
