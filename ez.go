@@ -158,29 +158,6 @@ type GrammarMode interface {
 	grammarConfig() *grammarConfig
 }
 
-type grammarConfig struct {
-	name            string
-	actionsDisabled []string
-	columnParser    columnParserFunc
-	whitespace      []string
-	newlines        []string
-	stringsReserved []string
-	tabstop         int
-	start           string
-	index           map[string]int
-	logFunc         func(string, ...any)
-	names           []string
-}
-
-func (c *grammarConfig) actionAllowed(s string) bool {
-	for _, v := range c.actionsDisabled {
-		if v == s {
-			return false
-		}
-	}
-	return true
-}
-
 type binaryMode struct {
 	actionsDisabled []string
 }
@@ -1012,6 +989,32 @@ func (g *G) Builder(name string, stub BuilderFunc) {
 // Grammar
 //
 
+type grammarConfig struct {
+	name            string
+	actionsDisabled []string
+	columnParser    columnParserFunc
+	whitespace      []string
+	newlines        []string
+	stringsReserved []string
+	tabstop         int
+	start           string
+	startIdx        int
+	index           map[string]int
+	logFunc         func(string, ...any)
+	names           []string
+}
+
+func (c *grammarConfig) actionAllowed(s string) bool {
+	for _, v := range c.actionsDisabled {
+		if v == s {
+			return false
+		}
+	}
+	return true
+}
+
+/// ---
+
 type Grammar struct {
 	config   *grammarConfig
 	rules    map[string]*parseAction
@@ -1035,10 +1038,8 @@ func (g *Grammar) Parser() *Parser {
 
 	p := &Parser{
 		rules:    rules,
-		start:    g.config.start,
-		index:    g.config.index,
+		config:   g.config,
 		builders: g.builders,
-		grammar:  g,
 	}
 	return p
 }
@@ -1123,6 +1124,7 @@ func buildGrammar(pos *filePosition, mode GrammarMode, stub func(*G)) *Grammar {
 	}
 
 	g.config.start = bg.Start
+	g.config.startIdx = index[bg.Start]
 	g.config.logFunc = bg.LogFunc
 	g.config.index = index
 
@@ -1773,10 +1775,8 @@ func buildAction(c *grammarConfig, a *parseAction) parseFunc {
 
 type Parser struct {
 	rules    []parseFunc
-	index    map[string]int
-	start    string
+	config   *grammarConfig
 	builders map[string]BuilderFunc
-	grammar  *Grammar
 	err      error
 }
 
@@ -1785,13 +1785,12 @@ func (p *Parser) Err() error {
 }
 
 func (p *Parser) newParserState(s string) *parserState {
-	config := p.grammar.config
 	i := &parserInput{
 		rules:        p.rules,
 		buf:          s,
 		length:       len(s),
-		columnParser: config.columnParser,
-		tabstop:      config.tabstop,
+		columnParser: p.config.columnParser,
+		tabstop:      p.config.tabstop,
 	}
 	return &parserState{i: i}
 }
@@ -1801,11 +1800,11 @@ func (p *Parser) ParseTree(s string) (*ParseTree, error) {
 		return nil, p.err
 	}
 	state := p.newParserState(s)
-	rule := p.rules[p.index[p.start]]
+	rule := p.rules[p.config.startIdx]
 
 	complete := rule(state) && atEnd(state)
 	if complete {
-		n := state.finalNode(p.start)
+		n := state.finalNode(p.config.start)
 		return &ParseTree{root: n, buf: s, nodes: state.i.nodes}, nil
 	}
 	return nil, ParseError
@@ -1832,7 +1831,7 @@ func (p *Parser) testGrammar(accept []string, reject []string) bool {
 	if p.err != nil {
 		return false
 	}
-	rule := p.rules[p.index[p.start]]
+	rule := p.rules[p.config.startIdx]
 	return p.testParseFunc(rule, accept, reject)
 }
 
@@ -1840,7 +1839,7 @@ func (p *Parser) testRule(name string, accept []string, reject []string) bool {
 	if p.err != nil {
 		return false
 	}
-	i, ok := p.index[name]
+	i, ok := p.config.index[name]
 	if !ok {
 		return false
 	}
