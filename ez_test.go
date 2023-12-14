@@ -14,20 +14,20 @@ func TestErrors(t *testing.T) {
 	// grammars need a start and one rule
 
 	g = BuildGrammar(func(g *G) {})
-	if g.Err() == nil {
+	if g.Err == nil {
 		t.Error("empty grammar should raise error")
 	} else {
-		t.Logf("test grammar raised error:\n %v", g.Err())
+		t.Logf("test grammar raised error:\n %v", g.Err)
 	}
 
 	// start rule must exist
 	g = BuildGrammar(func(g *G) {
 		g.Start = "missing"
 	})
-	if g.Err() == nil {
+	if g.Err == nil {
 		t.Error("missing start should raise error")
 	} else {
-		t.Logf("test grammar raised error:\n %v", g.Err())
+		t.Logf("test grammar raised error:\n %v", g.Err)
 	}
 
 	// all called rules must be defined
@@ -38,10 +38,10 @@ func TestErrors(t *testing.T) {
 			g.Call("missing")
 		})
 	})
-	if g.Err() == nil {
+	if g.Err == nil {
 		t.Error("missing rule should raise error")
 	} else {
-		t.Logf("test grammar raised error:\n %v", g.Err())
+		t.Logf("test grammar raised error:\n %v", g.Err)
 	}
 
 	// all defined rules must be called
@@ -54,10 +54,10 @@ func TestErrors(t *testing.T) {
 		})
 	})
 
-	if g.Err() == nil {
+	if g.Err == nil {
 		t.Error("unused rule should raise error")
 	} else {
-		t.Logf("test grammar raised error:\n %v", g.Err())
+		t.Logf("test grammar raised error:\n %v", g.Err)
 	}
 
 	// nested defines should fail
@@ -70,10 +70,10 @@ func TestErrors(t *testing.T) {
 		})
 	})
 
-	if g.Err() == nil {
+	if g.Err == nil {
 		t.Error("nested define should raise error")
 	} else {
-		t.Logf("test grammar raised error:\n %v", g.Err())
+		t.Logf("test grammar raised error:\n %v", g.Err)
 	}
 	// operators outside defines should fail
 	g = BuildGrammar(func(g *G) {
@@ -83,10 +83,10 @@ func TestErrors(t *testing.T) {
 		g.String("true")
 	})
 
-	if g.Err() == nil {
+	if g.Err == nil {
 		t.Error("builder outside define should raise error")
 	} else {
-		t.Logf("test grammar raised error:\n %v", g.Err())
+		t.Logf("test grammar raised error:\n %v", g.Err)
 	}
 
 	// invert must be called after Range
@@ -100,10 +100,10 @@ func TestErrors(t *testing.T) {
 		})
 	})
 
-	if g.Err() == nil {
+	if g.Err == nil {
 		t.Error("bad invert should raise error")
 	} else {
-		t.Logf("test grammar raised error:\n %v", g.Err())
+		t.Logf("test grammar raised error:\n %v", g.Err)
 	}
 
 	// range must be sensible
@@ -115,10 +115,10 @@ func TestErrors(t *testing.T) {
 		})
 	})
 
-	if g.Err() == nil {
+	if g.Err == nil {
 		t.Error("bad range should raise error")
 	} else {
-		t.Logf("test grammar raised error:\n %v", g.Err())
+		t.Logf("test grammar raised error:\n %v", g.Err)
 	}
 
 	// can't call whitespace inside Binary Mode
@@ -131,10 +131,10 @@ func TestErrors(t *testing.T) {
 		})
 	})
 
-	if g.Err() == nil {
+	if g.Err == nil {
 		t.Error("whitespace should raise error")
 	} else {
-		t.Logf("test grammar raised error:\n %v", g.Err())
+		t.Logf("test grammar raised error:\n %v", g.Err)
 	}
 
 	// can't call byte inside text Mode
@@ -146,10 +146,10 @@ func TestErrors(t *testing.T) {
 		})
 	})
 
-	if g.Err() == nil {
+	if g.Err == nil {
 		t.Error("byte should raise error")
 	} else {
-		t.Logf("test grammar raised error:\n %v", g.Err())
+		t.Logf("test grammar raised error:\n %v", g.Err)
 	}
 
 	// can't call ByteString() with rune > 255
@@ -162,10 +162,10 @@ func TestErrors(t *testing.T) {
 		})
 	})
 
-	if g.Err() == nil {
+	if g.Err == nil {
 		t.Error("big rune in bytestring should raise error")
 	} else {
-		t.Logf("test grammar raised error:\n %v", g.Err())
+		t.Logf("test grammar raised error:\n %v", g.Err)
 	}
 	// can't call String() with nonrune
 	g = BuildGrammar(func(g *G) {
@@ -174,10 +174,10 @@ func TestErrors(t *testing.T) {
 		})
 	})
 
-	if g.Err() == nil {
+	if g.Err == nil {
 		t.Error("bad rune should raise error")
 	} else {
-		t.Logf("test grammar raised error:\n %v", g.Err())
+		t.Logf("test grammar raised error:\n %v", g.Err)
 	}
 
 	// missing capture should raise error for builder
@@ -193,10 +193,10 @@ func TestErrors(t *testing.T) {
 		})
 	})
 
-	if g.Err() == nil {
+	if g.Err == nil {
 		t.Error("missing capture should raise error")
 	} else {
-		t.Logf("test grammar raised error:\n %v", g.Err())
+		t.Logf("test grammar raised error:\n %v", g.Err)
 	}
 
 	// cut in wrong place
@@ -209,10 +209,10 @@ func TestErrors(t *testing.T) {
 		})
 	})
 
-	if g.Err() == nil {
+	if g.Err == nil {
 		t.Error("cut should raise error")
 	} else {
-		t.Logf("test grammar raised error:\n %v", g.Err())
+		t.Logf("test grammar raised error:\n %v", g.Err)
 	}
 }
 
