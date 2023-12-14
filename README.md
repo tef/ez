@@ -3,7 +3,7 @@
 `ez` is a parser toolkit in golang, for those stubborn hard to reach grammars.
 
 ```
-parser := ez.BuildParser(func(g *ez.Grammar) {
+parser := ez.BuildParser(func(g *ez.G) {
         g.Start = "expr"
 
         g.Define("expr", func() {
@@ -27,7 +27,7 @@ if p.Err != nil {
         fmt.Println("err:", p.Err)
 }
 
-tree, err := p.Parse("true") 
+_, err := p.Parse("true") 
 if err != nil {
         fmt.Println("parsed true!")
 }

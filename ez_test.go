@@ -9,7 +9,7 @@ import (
 // t.Fatal(...) FatalF,  mark fail, exit
 
 func TestErrors(t *testing.T) {
-	var g *G
+	var g *Grammar
 
 	// grammars need a start and one rule
 
@@ -90,26 +90,28 @@ func TestErrors(t *testing.T) {
 	}
 
 	// calling builders outside should fail
+	var inner *G
 	g = BuildGrammar(func(g *G) {
 		g.Start = "expr"
+		inner = g
 
 		g.Define("expr", func() {})
 	})
-	g.Define("expr2", func() {})
+	inner.Define("expr2", func() {})
 
-	if g.err == nil {
+	if inner.err == nil {
 		t.Error("define should raise error")
 	} else {
-		t.Logf("test grammar raised error:\n %v", g.err)
+		t.Logf("test grammar raised error:\n %v", inner.err)
 	}
 	// calling builders outside should fail
-	g = &G{}
-	g.Define("expr2", func() {})
+	outer := &G{}
+	outer.Define("expr2", func() {})
 
-	if g.err == nil {
+	if outer.err == nil {
 		t.Error("define should raise error")
 	} else {
-		t.Logf("test grammar raised error:\n %v", g.err)
+		t.Logf("test grammar raised error:\n %v", outer.err)
 	}
 
 	// invert must be called after Range

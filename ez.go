@@ -103,21 +103,16 @@ func BinaryMode() *binaryMode {
 	}
 }
 
-func BuildGrammar(stub func(*G)) *G {
+func BuildGrammar(stub func(*G)) *Grammar {
 	g := &G{}
 	g.LogFunc = Printf
 	g.pos = g.markPosition(grammarAction)
 
 	if stub == nil {
 		g.Error(g.pos, "cant call BuildGrammar() with nil")
-		return g
 	}
 
-	err := g.buildGrammar(stub)
-	if err != nil {
-		return &G{err: err}
-	}
-	return g
+	return g.buildGrammar(stub)
 }
 
 func BuildParser(stub func(*G)) *Parser {
@@ -129,12 +124,12 @@ func BuildParser(stub func(*G)) *Parser {
 		return &Parser{err: g.err}
 	}
 
-	err := g.buildGrammar(stub)
-	if err != nil {
+	grammar := g.buildGrammar(stub)
+	if err := grammar.Err(); err != nil {
 		return &Parser{err: err}
 	}
 
-	return g.Parser()
+	return grammar.Parser()
 }
 
 //
@@ -322,6 +317,28 @@ func (b *nodeBuilder) inRule() bool {
 
 type BuilderFunc func(string, []any) (any, error)
 
+type Grammar struct {
+	g *G
+	err error
+	errors []error
+}
+
+
+func (g *Grammar) Err() error {
+	return g.err
+}
+
+func (g *Grammar) Errors() []error {
+	if g.errors == nil {
+		return []error{}
+	}
+	return g.errors
+}
+func (g *Grammar) Parser() *Parser {
+	return g.g.parser()
+}
+
+
 type G struct {
 	Start   string
 	Mode    ParserMode
@@ -346,17 +363,6 @@ type G struct {
 	pos    int // posInfo[pos] for grammar define
 	errors []error
 	err    error
-}
-
-func (g *G) Err() error {
-	return g.err
-}
-
-func (g *G) Errors() []error {
-	if g.errors == nil {
-		return []error{}
-	}
-	return g.errors
 }
 
 func (g *G) Error(pos int, args ...any) {
@@ -469,9 +475,9 @@ func (g *G) buildRule(rule int, stub func()) *nodeBuilder {
 	return newNb
 }
 
-func (g *G) buildGrammar(stub func(*G)) error {
+func (g *G) buildGrammar(stub func(*G)) *Grammar {
 	if g.nb != nil || g.names != nil {
-		return errors.New("use empty grammar")
+		return &Grammar{err: errors.New("empty grammar")}
 	}
 	g.nameIdx = make(map[string]int, 0)
 	g.callPos = make(map[string][]int, 0)
@@ -484,7 +490,10 @@ func (g *G) buildGrammar(stub func(*G)) error {
 	stub(g)
 	g.nb = nil
 
-	return g.Check()
+	if err := g.check(); err != nil {
+		return &Grammar{err: err}
+	}
+	return &Grammar{g:g}
 }
 
 func (g *G) formatPosition(p *filePosition) string {
@@ -495,6 +504,83 @@ func (g *G) formatPosition(p *filePosition) string {
 	}
 
 }
+func (g *G) check() error {
+	if g.err != nil {
+		return g.err
+	}
+	if !g.Mode.check() {
+		g.Error(g.pos, "misconfigured mode")
+		return g.err
+	}
+
+	if g.Start == "" && len(g.names) == 1 {
+		g.Start = g.names[0]
+	}
+
+	for name, pos := range g.callPos {
+		if _, ok := g.nameIdx[name]; !ok {
+			for _, p := range pos {
+				g.Errorf(p, "missing rule %q", name)
+			}
+		}
+	}
+
+	for n, name := range g.names {
+		if name != g.Start && g.callPos[name] == nil {
+			p := g.rulePos[n]
+			g.Errorf(p, "unused rule %q", name)
+		}
+	}
+
+	for name, _ := range g.builders {
+		if _, ok := g.capturePos[name]; !ok {
+			p := g.builderPos[name]
+			g.Errorf(p, "missing capture %q for builder", name)
+		}
+	}
+
+	if len(g.builders) > 0 {
+		for name, pos := range g.capturePos {
+			if _, ok := g.builderPos[name]; !ok {
+				for _, p := range pos {
+					g.Errorf(p, "missing builder %q for capture", name)
+				}
+			}
+		}
+	}
+
+	if g.Start == "" {
+		g.Error(g.pos, "starting rule undefined")
+	} else if _, ok := g.nameIdx[g.Start]; !ok {
+		g.Errorf(g.pos, "starting rule %q is missing", g.Start)
+	}
+
+	return g.err
+}
+
+func (g *G) parser() *Parser {
+	if g.check() != nil {
+		p := &Parser{err: g.err}
+		return p
+	}
+
+	rules := make([]parseFunc, len(g.rules))
+
+	for k, v := range g.rules {
+		rules[k] = v.buildFunc(g)
+	}
+
+	start := g.nameIdx[g.Start]
+
+	p := &Parser{
+		start:    start,
+		rules:    rules,
+		builders: g.builders,
+		grammar:  g,
+	}
+	return p
+}
+
 
 func (g *G) Define(name string, stub func()) {
 	p := g.markPosition(defineAction)
@@ -1018,60 +1104,6 @@ func (g *G) Repeat(min_t int, max_t int, stub func()) {
 	g.nb.append(a)
 }
 
-func (g *G) Check() error {
-	if g.err != nil {
-		return g.err
-	}
-	if !g.Mode.check() {
-		g.Error(g.pos, "misconfigured mode")
-		return g.err
-	}
-
-	if g.Start == "" && len(g.names) == 1 {
-		g.Start = g.names[0]
-	}
-
-	for name, pos := range g.callPos {
-		if _, ok := g.nameIdx[name]; !ok {
-			for _, p := range pos {
-				g.Errorf(p, "missing rule %q", name)
-			}
-		}
-	}
-
-	for n, name := range g.names {
-		if name != g.Start && g.callPos[name] == nil {
-			p := g.rulePos[n]
-			g.Errorf(p, "unused rule %q", name)
-		}
-	}
-
-	for name, _ := range g.builders {
-		if _, ok := g.capturePos[name]; !ok {
-			p := g.builderPos[name]
-			g.Errorf(p, "missing capture %q for builder", name)
-		}
-	}
-
-	if len(g.builders) > 0 {
-		for name, pos := range g.capturePos {
-			if _, ok := g.builderPos[name]; !ok {
-				for _, p := range pos {
-					g.Errorf(p, "missing builder %q for capture", name)
-				}
-			}
-		}
-	}
-
-	if g.Start == "" {
-		g.Error(g.pos, "starting rule undefined")
-	} else if _, ok := g.nameIdx[g.Start]; !ok {
-		g.Errorf(g.pos, "starting rule %q is missing", g.Start)
-	}
-
-	return g.err
-}
-
 func (g *G) Builder(name string, stub BuilderFunc) {
 	p := g.markPosition(builderAction)
 	if g.err != nil {
@@ -1093,29 +1125,6 @@ func (g *G) Builder(name string, stub BuilderFunc) {
 	}
 	g.builderPos[name] = p
 	g.builders[name] = stub
-}
-
-func (g *G) Parser() *Parser {
-	if g.Check() != nil {
-		p := &Parser{err: g.err}
-		return p
-	}
-
-	rules := make([]parseFunc, len(g.rules))
-
-	for k, v := range g.rules {
-		rules[k] = v.buildFunc(g)
-	}
-
-	start := g.nameIdx[g.Start]
-
-	p := &Parser{
-		start:    start,
-		rules:    rules,
-		builders: g.builders,
-		grammar:  g,
-	}
-	return p
 }
 
 //
