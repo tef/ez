@@ -276,7 +276,6 @@ type Grammar struct {
 
 	// list of pos for each name
 	posInfo    []*filePosition
-	rulePos    []int // posInfo[rulePos[ruleNum]]
 
 	pos    int // posInfo[pos] for grammar define
 	err    error
@@ -357,7 +356,7 @@ func buildGrammar(pos *filePosition, stub func(*G)) *Grammar {
 
 	for n, name := range g.names {
 		if name != bg.Start && bg.callPos[name] == nil {
-			p := g.rulePos[n]
+			p := bg.rulePos[n]
 			bg.Errorf(p, "unused rule %q", name)
 		}
 	}
@@ -445,6 +444,7 @@ type G struct {
 	callPos    map[string][]int
 	capturePos map[string][]int
 	builderPos map[string]int
+	rulePos    []int // posInfo[rulePos[ruleNum]]
 
 	nb *nodeBuilder
 }
@@ -585,15 +585,16 @@ func (g *G) Define(name string, stub func()) {
 	}
 
 	if old, ok := g.grammar.nameIdx[name]; ok {
-		oldPos := g.grammar.posInfo[g.grammar.rulePos[old]]
+		oldPos := g.grammar.posInfo[g.rulePos[old]]
 		g.Errorf(p, "cant redefine %q, already defined at %v", name, oldPos)
 		return
 	}
 
+
 	ruleNum := len(g.grammar.names)
 	g.grammar.names = append(g.grammar.names, name)
 	g.grammar.nameIdx[name] = ruleNum
-	g.grammar.rulePos = append(g.grammar.rulePos, p)
+	g.rulePos = append(g.rulePos, p)
 
 	r := g.buildRule(ruleNum, stub)
 	g.grammar.rules = append(g.grammar.rules, r.buildSequence(p))
