@@ -121,6 +121,7 @@ func BuildParser(stub func(*G)) *Parser {
 // ---
 
 type filePosition struct {
+	n      int
 	file   string
 	line   int
 	inside *string
@@ -233,21 +234,20 @@ type BuilderFunc func(string, []any) (any, error)
 
 type grammarError struct {
 	g       *Grammar
-	pos     int
+	pos     *filePosition
 	message string
 	fatal   bool
 }
 
 func (e *grammarError) Error() string {
-	p := e.g.posInfo[e.pos]
-	return fmt.Sprintf("%v: error in %v(): %v", p, p.action, e.message)
+	return fmt.Sprintf("%v: error in %v(): %v", e.pos, e.pos.action, e.message)
 }
 
 type parseAction struct {
 	// this is a 'wide style' variant struct
 
 	kind    string
-	pos     int
+	pos     *filePosition
 	name    string         // call, capture
 	args    []*parseAction // choice, seq, cap
 	strings []string
@@ -274,10 +274,7 @@ type Grammar struct {
 	nameIdx  map[string]int
 	builders map[string]BuilderFunc
 
-	// list of pos for each name
-	posInfo    []*filePosition
-
-	pos    int // posInfo[pos] for grammar define
+	pos    *filePosition //
 	err    error
 	errors []error
 }
@@ -320,17 +317,17 @@ func buildGrammar(pos *filePosition, stub func(*G)) *Grammar {
 	g := &Grammar{}
 	g.nameIdx = make(map[string]int, 0)
 	g.builders = make(map[string]BuilderFunc, 0)
-	g.posInfo = []*filePosition{pos}
-	g.pos = 0
+	g.pos = pos
 
 	bg := &G{
-		grammar: g,
-		nb:      &nodeBuilder{kind: grammarAction},
-		LogFunc: Printf,
-		Mode:    TextMode(),
-		callPos: make(map[string][]int, 0),
-		capturePos: make(map[string][]int, 0),
-		builderPos: make(map[string]int, 0),
+		grammar:    g,
+		n:          1,
+		nb:         &nodeBuilder{kind: grammarAction},
+		LogFunc:    Printf,
+		Mode:       TextMode(),
+		callPos:    make(map[string][]*filePosition, 0),
+		capturePos: make(map[string][]*filePosition, 0),
+		builderPos: make(map[string]*filePosition, 0),
 	}
 
 	if stub == nil {
@@ -399,7 +396,7 @@ type nodeBuilder struct {
 	args   []*parseAction
 }
 
-func (b *nodeBuilder) buildSequence(pos int) *parseAction {
+func (b *nodeBuilder) buildSequence(pos *filePosition) *parseAction {
 	if len(b.args) == 0 {
 		return nil
 	}
@@ -409,7 +406,7 @@ func (b *nodeBuilder) buildSequence(pos int) *parseAction {
 	return &parseAction{kind: sequenceAction, args: b.args, pos: pos}
 }
 
-func (b *nodeBuilder) buildNode(pos int, kind string) *parseAction {
+func (b *nodeBuilder) buildNode(pos *filePosition, kind string) *parseAction {
 	return &parseAction{kind: kind, args: b.args, pos: pos}
 }
 
@@ -441,12 +438,13 @@ type G struct {
 	Mode       GrammarMode
 	configmode GrammarMode
 
-	callPos    map[string][]int
-	capturePos map[string][]int
-	builderPos map[string]int
-	rulePos    []int // posInfo[rulePos[ruleNum]]
+	callPos    map[string][]*filePosition
+	capturePos map[string][]*filePosition
+	builderPos map[string]*filePosition
+	rulePos    []*filePosition
 
 	nb *nodeBuilder
+	n  int
 }
 
 func (g *G) err() error {
@@ -461,7 +459,7 @@ func (g *G) parserConfig() *parserConfig {
 	return g.grammar.config
 }
 
-func (g *G) Error(pos int, args ...any) {
+func (g *G) Error(pos *filePosition, args ...any) {
 	msg := fmt.Sprint(args...)
 	err := &grammarError{
 		g:       g.grammar,
@@ -474,7 +472,7 @@ func (g *G) Error(pos int, args ...any) {
 	g.grammar.errors = append(g.grammar.errors, err)
 }
 
-func (g *G) Errorf(pos int, s string, args ...any) {
+func (g *G) Errorf(pos *filePosition, s string, args ...any) {
 	msg := fmt.Sprintf(s, args...)
 	err := &grammarError{
 		g:       g.grammar,
@@ -487,7 +485,7 @@ func (g *G) Errorf(pos int, s string, args ...any) {
 	g.grammar.errors = append(g.grammar.errors, err)
 }
 
-func (g *G) Warn(pos int, args ...any) {
+func (g *G) Warn(pos *filePosition, args ...any) {
 	msg := fmt.Sprint(args...)
 	err := &grammarError{
 		g:       g.grammar,
@@ -497,7 +495,7 @@ func (g *G) Warn(pos int, args ...any) {
 	g.grammar.errors = append(g.grammar.errors, err)
 }
 
-func (g *G) Warnf(pos int, s string, args ...any) {
+func (g *G) Warnf(pos *filePosition, s string, args ...any) {
 	msg := fmt.Sprintf(s, args...)
 	err := &grammarError{
 		g:       g.grammar,
@@ -507,7 +505,7 @@ func (g *G) Warnf(pos int, s string, args ...any) {
 	g.grammar.errors = append(g.grammar.errors, err)
 }
 
-func (g *G) shouldExit(pos int, kind string) bool {
+func (g *G) shouldExit(pos *filePosition, kind string) bool {
 	if g.grammar == nil {
 		return true
 	}
@@ -534,17 +532,17 @@ func (g *G) shouldExit(pos int, kind string) bool {
 
 }
 
-func (g *G) markPosition(actionKind string) int {
+func (g *G) markPosition(actionKind string) *filePosition {
 	// would be one if called inside BuilderFunc()
 	pos := getCallerPosition(2, actionKind)
-	p := len(g.grammar.posInfo)
 	rule := g.nb.rule
 	if rule != nil {
 		pos.inside = &g.grammar.names[*rule]
 	}
+	pos.n = g.n
+	g.n++
 
-	g.grammar.posInfo = append(g.grammar.posInfo, pos)
-	return p
+	return pos
 }
 
 func (g *G) buildStub(kind string, stub func()) *nodeBuilder {
@@ -585,11 +583,10 @@ func (g *G) Define(name string, stub func()) {
 	}
 
 	if old, ok := g.grammar.nameIdx[name]; ok {
-		oldPos := g.grammar.posInfo[g.rulePos[old]]
+		oldPos := g.rulePos[old]
 		g.Errorf(p, "cant redefine %q, already defined at %v", name, oldPos)
 		return
 	}
-
 
 	ruleNum := len(g.grammar.names)
 	g.grammar.names = append(g.grammar.names, name)
@@ -910,14 +907,14 @@ func (g *G) ByteRange(s ...string) RangeOptions {
 type RangeOptions struct {
 	g *G
 	a *parseAction
-	p int
+	p *filePosition
 }
 
 func (ro RangeOptions) Invert() RangeOptions {
 	return ro.g.invertRange(ro.p, ro.a)
 }
 
-func (g *G) invertRange(rangePos int, a *parseAction) RangeOptions {
+func (g *G) invertRange(rangePos *filePosition, a *parseAction) RangeOptions {
 	p := g.markPosition(rangeAction)
 	ro := RangeOptions{
 		g: g,
@@ -927,7 +924,7 @@ func (g *G) invertRange(rangePos int, a *parseAction) RangeOptions {
 		return ro
 	}
 
-	if p-rangePos != 1 {
+	if p.n-rangePos.n != 1 {
 		g.Error(p, "called in wrong position")
 		return ro
 	}
@@ -1342,7 +1339,7 @@ func buildAction(g *Grammar, a *parseAction) parseFunc {
 	}
 	switch a.kind {
 	case printAction:
-		prefix := g.posInfo[a.pos]
+		prefix := a.pos
 		fn := g.logFunc
 		return func(i *parserInput, s *parserState) bool {
 			msg := fmt.Sprint(a.message...)
@@ -1350,7 +1347,7 @@ func buildAction(g *Grammar, a *parseAction) parseFunc {
 			return true
 		}
 	case traceAction:
-		prefix := g.posInfo[a.pos]
+		prefix := a.pos
 		fn := g.logFunc
 
 		rules := make([]parseFunc, len(a.args))
@@ -1382,7 +1379,7 @@ func buildAction(g *Grammar, a *parseAction) parseFunc {
 			return result
 		}
 	case callAction:
-		prefix := g.posInfo[a.pos]
+		prefix := a.pos
 
 		name := a.name
 		idx := g.nameIdx[name]
