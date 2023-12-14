@@ -289,6 +289,7 @@ func (e *grammarError) Error() string {
 
 type nodeBuilder struct {
 	kind string
+	parent *nodeBuilder
 	rule *int
 	args []*parseAction
 }
@@ -313,6 +314,17 @@ func (b *nodeBuilder) append(a *parseAction) {
 
 func (b *nodeBuilder) inRule() bool {
 	return b != nil && b.kind != grammarAction
+}
+
+func (b *nodeBuilder) nestedInside(k string) bool {
+	n := b
+	for n != nil {
+		if n.kind == k {
+			return true
+		}
+		n = n.parent
+	}
+	return false
 }
 
 type BuilderFunc func(string, []any) (any, error)
@@ -344,20 +356,19 @@ type G struct {
 	Mode    ParserMode
 	LogFunc func(string, ...any)
 
+
 	rules   []*parseAction
 	names   []string
 	nameIdx map[string]int
+	builders   map[string]BuilderFunc
 
 	// list of pos for each name
+	posInfo []filePosition
+	rulePos    []int // posInfo[rulePos[ruleNum]]
 	callPos    map[string][]int
 	capturePos map[string][]int
 
-	rulePos []int // posInfo[rulePos[ruleNum]]
-	posInfo []filePosition
-
-	builders   map[string]BuilderFunc
 	builderPos map[string]int
-
 	nb *nodeBuilder
 
 	pos    int // posInfo[pos] for grammar define
@@ -459,7 +470,7 @@ func (g *G) buildStub(kind string, stub func()) *nodeBuilder {
 	if oldNb != nil {
 		rule = oldNb.rule
 	}
-	newNb := &nodeBuilder{kind: kind, rule: rule}
+	newNb := &nodeBuilder{kind: kind, rule: rule, parent: oldNb}
 	g.nb = newNb
 	stub()
 	g.nb = oldNb
@@ -468,7 +479,7 @@ func (g *G) buildStub(kind string, stub func()) *nodeBuilder {
 
 func (g *G) buildRule(rule int, stub func()) *nodeBuilder {
 	oldNb := g.nb
-	newNb := &nodeBuilder{kind: defineAction, rule: &rule}
+	newNb := &nodeBuilder{kind: defineAction, rule: &rule, parent: oldNb}
 	g.nb = newNb
 	stub()
 	g.nb = oldNb
@@ -1001,7 +1012,7 @@ func (g *G) Cut() {
 	if g.shouldExit(p, cutAction) {
 		return
 	}
-	if g.nb.kind != choiceAction {
+	if !g.nb.nestedInside(choiceAction) {
 		g.Error(p, "cut must be called directly inside choice, sorry.")
 		return
 	}
@@ -1217,7 +1228,11 @@ func (a *parseAction) buildFunc(g *G) parseFunc {
 			}
 
 			rule := s.i.rules[idx] // can't move this out to runtime unless we reorder defs
+			oldChoice := s.choiceExit
+			s.choiceExit = false
+
 			out := rule(s)
+			s.choiceExit = oldChoice
 
 			if s.trace {
 				if out {

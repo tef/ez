@@ -224,6 +224,21 @@ func TestErrors(t *testing.T) {
 		t.Logf("test grammar raised error:\n %v", g.err)
 	}
 
+	// cut in wrong place
+
+	g = BuildGrammar(func(g *G) {
+		g.Start = "expr"
+
+		g.Define("expr", func() {
+			g.Cut()
+		})
+	})
+
+	if g.err == nil {
+		t.Error("cut should raise error")
+	} else {
+		t.Logf("test grammar raised error:\n %v", g.err)
+	}
 }
 
 func TestLogger(t *testing.T) {
@@ -335,8 +350,10 @@ func TestParser(t *testing.T) {
 		})
 		g.Define("test_cut", func() {
 			g.Choice(func() {
-				g.String("a")
-				g.Cut()
+				g.Capture("a", func(){
+					g.String("a")
+					g.Cut()
+				})
 				g.String("1")
 			}, func() {
 				g.String("aa")
