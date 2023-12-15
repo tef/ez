@@ -249,6 +249,23 @@ func TestErrors(t *testing.T) {
 	} else {
 		t.Logf("test grammar raised error:\n %v", g.Err)
 	}
+	// boo
+
+	g = BuildGrammar(func(g *G) {
+		g.Start = "expr"
+
+		g.Define("expr", func() {
+			g.Cut()
+			g.Byte()
+			g.String("\t")
+		})
+	})
+
+	if g.Err == nil {
+		t.Error("multiple should raise error")
+	} else {
+		t.Logf("test grammar raised error:\n %v", g.Err)
+	}
 }
 
 func TestLogger(t *testing.T) {

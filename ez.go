@@ -150,6 +150,39 @@ func (p *filePosition) String() string {
 
 }
 
+type grammarError struct {
+	pos     *filePosition
+	message string
+	fatal   bool
+}
+
+func (e *grammarError) Error() string {
+	return fmt.Sprintf("%v: error in %v(), %v", e.pos, e.pos.action, e.message)
+}
+
+func errorSummary(pos *filePosition, errors []*grammarError) error {
+	if len(errors) == 0 {
+		return nil
+	} else if len(errors) == 1 {
+		return errors[0]
+	}
+
+	report := make([]string, len(errors)+1)
+
+	report[0] = fmt.Sprintf("%d in total", len(errors))
+
+	for i, v := range errors {
+		report[i+1] = v.Error()
+	}
+
+	message := strings.Join(report, "\n ")
+
+	return &grammarError{
+		pos:     pos,
+		message: message,
+	}
+}
+
 //
 //  	Grammar Modes
 //
@@ -215,17 +248,7 @@ func (m *textMode) Tabstop(t int) *textMode {
 	return m
 }
 
-// ---
-
-type grammarError struct {
-	pos     *filePosition
-	message string
-	fatal   bool
-}
-
-func (e *grammarError) Error() string {
-	return fmt.Sprintf("%v: error in %v(): %v", e.pos, e.pos.action, e.message)
-}
+// parseAction is a representation of a bit of a grammar
 
 type parseAction struct {
 	// this is a 'wide style' variant struct
@@ -305,9 +328,9 @@ type G struct {
 	builderPos map[string]*filePosition
 	rulePos    map[string]*filePosition
 
-	nb     *nodeBuilder
-	err    error
-	errors []error
+	nb *nodeBuilder
+	//err    error
+	errors []*grammarError
 	n      int
 }
 
@@ -325,9 +348,6 @@ func (g *G) addError(pos *filePosition, args ...any) {
 		message: msg,
 		pos:     pos,
 	}
-	if g.err == nil {
-		g.err = err
-	}
 	g.errors = append(g.errors, err)
 }
 
@@ -336,9 +356,6 @@ func (g *G) addErrorf(pos *filePosition, s string, args ...any) {
 	err := &grammarError{
 		message: msg,
 		pos:     pos,
-	}
-	if g.err == nil {
-		g.err = err
 	}
 	g.errors = append(g.errors, err)
 }
@@ -422,7 +439,7 @@ func (g *G) buildRule(rule string, stub func()) *nodeBuilder {
 
 func (g *G) Define(name string, stub func()) {
 	p := g.markPosition(defineAction)
-	if g.grammar == nil || g.err != nil {
+	if g.grammar == nil {
 		return
 	} else if g.nb == nil {
 		g.addError(p, "must call define inside grammar")
@@ -461,6 +478,7 @@ func (g *G) Trace(stub func()) {
 		return
 	} else if stub == nil {
 		g.addError(p, "cant call Trace() with nil")
+		return
 	}
 
 	r := g.buildStub(traceAction, stub)
@@ -558,15 +576,11 @@ func (g *G) PeekString(stubs map[string]func()) {
 		}
 		if stub == nil {
 			g.addError(p, "cant call PeekString() with nil function")
-		}
-
-		r := g.buildStub(peekStringAction, stub)
-
-		if g.err != nil {
 			return
+		} else {
+			r := g.buildStub(peekStringAction, stub)
+			args[c] = r.buildSequence(p)
 		}
-
-		args[c] = r.buildSequence(p)
 	}
 	a := &parseAction{kind: peekStringAction, stringSwitch: args, pos: p}
 	g.nb.append(a)
@@ -585,16 +599,10 @@ func (g *G) PeekRune(stubs map[rune]func()) {
 	for c, stub := range stubs {
 		if stub == nil {
 			g.addError(p, "cant call PeekRune() with nil function")
-			return
+		} else {
+			r := g.buildStub(peekRuneAction, stub)
+			args[c] = r.buildSequence(p)
 		}
-
-		r := g.buildStub(peekRuneAction, stub)
-
-		if g.err != nil {
-			return
-		}
-
-		args[c] = r.buildSequence(p)
 	}
 	a := &parseAction{kind: peekRuneAction, runeSwitch: args, pos: p}
 	g.nb.append(a)
@@ -611,12 +619,10 @@ func (g *G) String(s ...string) {
 	for _, v := range s {
 		if !utf8.ValidString(v) {
 			g.addErrorf(p, "String(%q) contains invalid UTF-8", v)
-			return
 		}
 		for _, b := range g.grammarConfig().stringsReserved {
 			if strings.Index(v, b) > -1 {
 				g.addErrorf(p, "String(%q) contains reserved string %q", v, b)
-				return
 			}
 		}
 
@@ -645,7 +651,6 @@ func (g *G) Range(s ...string) RangeOptions {
 		r := []rune(v)
 		if !(len(r) == 1 || (len(r) == 3 && r[1] == '-' && r[0] < r[2])) {
 			g.addError(p, "invalid range", v)
-			return ro
 		}
 		args[i] = v
 	}
@@ -678,16 +683,10 @@ func (g *G) PeekByte(stubs map[byte]func()) {
 	for c, stub := range stubs {
 		if stub == nil {
 			g.addError(p, "cant call PeekByte() with nil function")
-			return
+		} else {
+			r := g.buildStub(peekByteAction, stub)
+			args[c] = r.buildSequence(p)
 		}
-
-		r := g.buildStub(peekByteAction, stub)
-
-		if g.err != nil {
-			return
-		}
-
-		args[c] = r.buildSequence(p)
 	}
 	a := &parseAction{kind: peekByteAction, byteSwitch: args, pos: p}
 	g.nb.append(a)
@@ -811,14 +810,10 @@ func (g *G) Sequence(stub func()) {
 		return
 	} else if stub == nil {
 		g.addError(p, "cant call Sequence() with nil")
-	}
-
-	r := g.buildStub(sequenceAction, stub)
-
-	if g.err != nil {
 		return
 	}
 
+	r := g.buildStub(sequenceAction, stub)
 	a := r.buildSequence(p)
 	g.nb.append(a)
 }
@@ -829,13 +824,10 @@ func (g *G) Capture(name string, stub func()) {
 		return
 	} else if stub == nil {
 		g.addError(p, "cant call Capture() with nil")
+		return
 	}
 
 	r := g.buildStub(sequenceAction, stub)
-
-	if g.err != nil {
-		return
-	}
 
 	g.capturePos[name] = append(g.capturePos[name], p)
 
@@ -870,16 +862,10 @@ func (g *G) Choice(options ...func()) {
 	for i, stub := range options {
 		if stub == nil {
 			g.addError(p, "cant call Choice() with nil")
-			return
+		} else {
+			r := g.buildStub(choiceAction, stub)
+			args[i] = r.buildSequence(p)
 		}
-
-		r := g.buildStub(choiceAction, stub)
-
-		if g.err != nil {
-			return
-		}
-
-		args[i] = r.buildSequence(p)
 	}
 	a := &parseAction{kind: choiceAction, args: args, pos: p}
 	g.nb.append(a)
@@ -894,10 +880,6 @@ func (g *G) Optional(stub func()) {
 		return
 	}
 	r := g.buildStub(optionalAction, stub)
-	if g.err != nil {
-		return
-	}
-
 	a := &parseAction{kind: optionalAction, args: r.args, pos: p}
 	g.nb.append(a)
 }
@@ -911,10 +893,6 @@ func (g *G) Lookahead(stub func()) {
 		return
 	}
 	r := g.buildStub(lookaheadAction, stub)
-	if g.err != nil {
-		return
-	}
-
 	a := &parseAction{kind: lookaheadAction, args: r.args, pos: p}
 	g.nb.append(a)
 }
@@ -928,10 +906,6 @@ func (g *G) Reject(stub func()) {
 		return
 	}
 	r := g.buildStub(rejectAction, stub)
-	if g.err != nil {
-		return
-	}
-
 	a := &parseAction{kind: rejectAction, args: r.args, pos: p}
 	g.nb.append(a)
 }
@@ -942,23 +916,17 @@ func (g *G) Repeat(min_t int, max_t int, stub func()) {
 		return
 	} else if stub == nil {
 		g.addError(p, "cant call Repeat() with nil")
-	}
-
-	r := g.buildStub(repeatAction, stub)
-
-	if g.err != nil {
 		return
 	}
 
+	r := g.buildStub(repeatAction, stub)
 	a := &parseAction{kind: repeatAction, args: r.args, min: min_t, max: max_t, pos: p}
 	g.nb.append(a)
 }
 
 func (g *G) Builder(name string, stub any) {
 	p := g.markPosition(builderAction)
-	if g.err != nil {
-		return
-	} else if g.nb == nil {
+	if g.nb == nil {
 		g.addError(p, "must call Builder() inside grammar")
 		return
 	} else if g.nb.inRule() {
@@ -972,15 +940,17 @@ func (g *G) Builder(name string, stub any) {
 	if _, ok := g.grammar.builders[name]; ok {
 		oldPos := g.builderPos[name]
 		g.addErrorf(p, "cant redefine %q, already defined at %v", name, oldPos)
-		return
-	}
-	g.builderPos[name] = p
+	} else {
+		g.builderPos[name] = p
 
-	switch stub.(type) {
-	case func(string, []any) (any, error):
-		g.grammar.builders[name] = stub
-	default:
-		g.addError(p, "builder has wrong type signature. try func(string, []any) (any, error).")
+		// pass bytes in byte mode?
+
+		switch stub.(type) {
+		case func(string, []any) (any, error):
+			g.grammar.builders[name] = stub
+		default:
+			g.addError(p, "builder has wrong type signature. try func(string, []any) (any, error).")
+		}
 	}
 
 }
@@ -1113,11 +1083,13 @@ func buildGrammar(pos *filePosition, mode GrammarMode, stub func(*G)) *Grammar {
 		bg.addErrorf(g.pos, "starting rule %q is missing", bg.Start)
 	}
 
-	if bg.err != nil {
-		return &Grammar{Err: bg.err}
+	err := errorSummary(pos, bg.errors)
+
+	if err != nil {
+		return &Grammar{Err: err}
 	}
 
-	index := make(map[string]int, len(g.rules))
+	index := make(map[string]int, len(g.config.names))
 
 	for i, n := range g.config.names {
 		index[n] = i
@@ -1791,6 +1763,7 @@ func (p *Parser) newParserState(s string) *parserState {
 		length:       len(s),
 		columnParser: p.config.columnParser,
 		tabstop:      p.config.tabstop,
+		nodes:        make([]Node, 128),
 	}
 	return &parserState{i: i}
 }
