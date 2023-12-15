@@ -217,8 +217,6 @@ func (m *textMode) Tabstop(t int) *textMode {
 
 // ---
 
-type BuilderFunc func(string, []any) (any, error)
-
 type grammarError struct {
 	pos     *filePosition
 	message string
@@ -962,7 +960,7 @@ func (g *G) Repeat(min_t int, max_t int, stub func()) {
 	g.nb.append(a)
 }
 
-func (g *G) Builder(name string, stub BuilderFunc) {
+func (g *G) Builder(name string, stub any) {
 	p := g.markPosition(builderAction)
 	if g.err != nil {
 		return
@@ -982,7 +980,14 @@ func (g *G) Builder(name string, stub BuilderFunc) {
 		return
 	}
 	g.builderPos[name] = p
-	g.grammar.builders[name] = stub
+
+	switch stub.(type) {
+	case func(string, []any) (any, error):
+		g.grammar.builders[name] = stub
+	default:
+		g.addError(p, "builder has wrong type signature.")
+	}
+
 }
 
 //
@@ -1018,7 +1023,7 @@ func (c *grammarConfig) actionAllowed(s string) bool {
 type Grammar struct {
 	config   *grammarConfig
 	rules    map[string]*parseAction
-	builders map[string]BuilderFunc
+	builders map[string]any
 
 	pos *filePosition //
 	Err error
@@ -1046,7 +1051,7 @@ func (g *Grammar) Parser() *Parser {
 
 func buildGrammar(pos *filePosition, mode GrammarMode, stub func(*G)) *Grammar {
 	g := &Grammar{}
-	g.builders = make(map[string]BuilderFunc, 0)
+	g.builders = make(map[string]any, 0)
 	g.rules = make(map[string]*parseAction, 0)
 	g.pos = pos
 
@@ -1776,7 +1781,7 @@ func buildAction(c *grammarConfig, a *parseAction) parseFunc {
 type Parser struct {
 	rules    []parseFunc
 	config   *grammarConfig
-	builders map[string]BuilderFunc
+	builders map[string]any
 	err      error
 }
 
@@ -1926,7 +1931,7 @@ func (t *ParseTree) Walk(f func(*Node)) {
 	walk(t.root)
 }
 
-func (t *ParseTree) Build(builders map[string]BuilderFunc) (any, error) {
+func (t *ParseTree) Build(builders map[string]any) (any, error) {
 	var build func(int) (any, error)
 
 	build = func(i int) (any, error) {
@@ -1943,7 +1948,13 @@ func (t *ParseTree) Build(builders map[string]BuilderFunc) (any, error) {
 				return nil, err
 			}
 		}
-		return builders[n.name](t.buf[n.start:n.end], args)
+		fn := builders[n.name]
+		switch v := fn.(type) {
+		case func(string, []any) (any, error):
+			return v(t.buf[n.start:n.end], args)
+		default:
+			return nil, errors.New("no builder")
+		}
 	}
 	return build(t.root)
 }

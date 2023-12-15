@@ -213,6 +213,26 @@ func TestErrors(t *testing.T) {
 	} else {
 		t.Logf("test grammar raised error:\n %v", g.Err)
 	}
+	// bad builder
+	g = BuildGrammar(func(g *G) {
+		g.Start = "expr"
+
+		g.Define("expr", func() {
+			g.Capture("expr", func() {
+				g.String("foo")
+			})
+		})
+
+		g.Builder("expr", func(int, []any) (any, error) {
+			return nil, nil
+		})
+	})
+
+	if g.Err == nil {
+		t.Error("missing capture should raise error")
+	} else {
+		t.Logf("test grammar raised error:\n %v", g.Err)
+	}
 
 	// cut in wrong place
 
