@@ -365,9 +365,6 @@ func (g *G) shouldExit(pos *filePosition, kind string) bool {
 	if g.grammar == nil {
 		return true
 	}
-	if len(g.errors) > 0 {
-		return true
-	}
 	if g.nb == nil {
 		g.addError(pos, "must call builder methods inside builder")
 		return true
@@ -467,9 +464,6 @@ func (g *G) Trace(stub func()) {
 	}
 
 	r := g.buildStub(traceAction, stub)
-	if g.err != nil {
-		return
-	}
 
 	a := &parseAction{kind: traceAction, args: r.args, pos: p}
 	g.nb.append(a)
@@ -556,17 +550,14 @@ func (g *G) PeekString(stubs map[string]func()) {
 	for c, stub := range stubs {
 		if !utf8.ValidString(c) {
 			g.addErrorf(p, "PeekString(%q) contains invalid UTF-8", c)
-			return
 		}
 		for _, b := range g.grammarConfig().stringsReserved {
 			if strings.Index(c, b) > -1 {
 				g.addErrorf(p, "PeekString(%q) contains reserved string %q", c, b)
-				return
 			}
 		}
 		if stub == nil {
 			g.addError(p, "cant call PeekString() with nil function")
-			return
 		}
 
 		r := g.buildStub(peekStringAction, stub)
@@ -900,6 +891,7 @@ func (g *G) Optional(stub func()) {
 		return
 	} else if stub == nil {
 		g.addError(p, "cant call Optional() with nil")
+		return
 	}
 	r := g.buildStub(optionalAction, stub)
 	if g.err != nil {
@@ -916,6 +908,7 @@ func (g *G) Lookahead(stub func()) {
 		return
 	} else if stub == nil {
 		g.addError(p, "cant call Lookahead() with nil")
+		return
 	}
 	r := g.buildStub(lookaheadAction, stub)
 	if g.err != nil {
@@ -932,6 +925,7 @@ func (g *G) Reject(stub func()) {
 		return
 	} else if stub == nil {
 		g.addError(p, "cant call Reject() with nil")
+		return
 	}
 	r := g.buildStub(rejectAction, stub)
 	if g.err != nil {
@@ -972,6 +966,7 @@ func (g *G) Builder(name string, stub any) {
 		return
 	} else if stub == nil {
 		g.addError(p, "cant call Builder() with nil")
+		return
 	}
 
 	if _, ok := g.grammar.builders[name]; ok {
@@ -985,7 +980,7 @@ func (g *G) Builder(name string, stub any) {
 	case func(string, []any) (any, error):
 		g.grammar.builders[name] = stub
 	default:
-		g.addError(p, "builder has wrong type signature.")
+		g.addError(p, "builder has wrong type signature. try func(string, []any) (any, error).")
 	}
 
 }
