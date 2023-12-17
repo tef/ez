@@ -704,17 +704,7 @@ func (g *G) ByteString(s ...string) {
 
 	b := make([][]byte, len(s))
 	for i, v := range s {
-		bs := make([]byte, utf8.RuneCountInString(v))
-		c := 0
-		for _, r := range v {
-			if r > 255 {
-				g.addErrorf(p, "ByteString(%q) contains rune > 255, cannot convert to []byte", v)
-				return
-			}
-			bs[c] = byte(r)
-			c++
-		}
-		b[i] = bs
+		b[i] = []byte(v)
 
 	}
 
@@ -1310,7 +1300,7 @@ func textModeColumnParser(buf string, column int, tabstop int, oldOffset int, ne
 		case byte('\r'):
 			column = 0
 		case byte('\n'):
-			if i > 1 && buf[i-1] != byte('\r') {
+			if i > 0 && buf[i-1] != byte('\r') {
 				column = 0
 			}
 

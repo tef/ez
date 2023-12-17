@@ -167,21 +167,6 @@ func TestErrors(t *testing.T) {
 		t.Logf("test grammar raised error:\n %v", g.Err)
 	}
 
-	// can't call ByteString() with rune > 255
-	g = BuildGrammar(func(g *G) {
-		g.Mode = BinaryMode()
-		g.Start = "expr"
-
-		g.Define("expr", func() {
-			g.ByteString("\u0100")
-		})
-	})
-
-	if g.Err == nil {
-		t.Error("big rune in bytestring should raise error")
-	} else {
-		t.Logf("test grammar raised error:\n %v", g.Err)
-	}
 	// can't call String() with nonrune
 	g = BuildGrammar(func(g *G) {
 		g.Define("test", func() {
@@ -841,9 +826,12 @@ func BenchmarkParser(b *testing.B) {
 
 	parser = BuildParser(func(g *G) {
 		g.Define("expr", func() {
-			g.String("x")
-			g.Optional(func() {
-				g.Call("expr")
+			g.Capture("e", func() {
+				g.String("x")
+
+				g.Optional(func() {
+					g.Call("expr")
+				})
 			})
 		})
 	})
@@ -854,12 +842,11 @@ func BenchmarkParser(b *testing.B) {
 	x := "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
 	x = x + x + x + x + x + x + x + x + x + x + x + x + x + x + x
 	x = x + x + x + x + x + x + x + x + x + x + x + x + x + x + x
-	x = x + x + x + x + x + x
 
 	b.ResetTimer()
 
 	ok = parser.testGrammar(
-		[]string{x, x, x, x, x, x, x, x, x, x, x, x, x, x},
+		[]string{x, x, x},
 		[]string{""},
 	)
 	if !ok {
