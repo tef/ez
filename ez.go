@@ -28,7 +28,7 @@ const (
 	rejectAction    = "Reject"
 	captureAction   = "Capture"
 
-	startOfFileAction = "StartOfFie"
+	startOfFileAction = "StartOfFile"
 	endOfFileAction   = "EndOfFile"
 
 	peekStringAction = "PeekString"
@@ -1113,8 +1113,10 @@ type parserState struct {
 
 	offset int
 
-	numNodes int
+	lineStart  int
+	lineNumber int
 
+	numNodes     int
 	lastSibling  int
 	countSibling int
 
@@ -1209,7 +1211,6 @@ func trimCapture(s *parserState, new *parserState) {
 }
 
 func mergeCapture(s *parserState, name string, new *parserState) {
-
 	nextSibling := new.lastSibling
 	lastSibling := 0
 	nodes := new.i.nodes
@@ -1315,7 +1316,7 @@ func buildAction(c *grammarConfig, a *parseAction) parseFunc {
 		fn := c.logFunc
 		return func(s *parserState) bool {
 			msg := fmt.Sprint(a.message...)
-			fn("%v: Print(%q) called, at offset %v\n", prefix, msg, s.offset)
+			fn("%v: Print(%q) called, at line %v, char %v\n", prefix, msg, s.lineNumber, s.offset-s.lineStart)
 			return true
 		}
 	case traceAction:
@@ -1328,7 +1329,7 @@ func buildAction(c *grammarConfig, a *parseAction) parseFunc {
 		}
 
 		return func(s *parserState) bool {
-			fn("%v: Trace() starting, at offset %v\n", prefix, s.offset)
+			fn("%v: Trace() starting, at line %v, char %v\n", s.lineNumber, s.offset-s.lineStart)
 			result := true
 
 			var s1 parserState
@@ -1393,12 +1394,18 @@ func buildAction(c *grammarConfig, a *parseAction) parseFunc {
 	case endOfLineAction, newlineAction:
 		nl := c.newlines
 		return func(s *parserState) bool {
-			return acceptAny(s, nl)
+			if acceptAny(s, nl) {
+				s.lineStart = s.offset
+				s.lineNumber++
+				return true
+			}
+
+			return false
 		}
 
 	case startOfLineAction:
 		return func(s *parserState) bool {
-			return false // s.column == 0
+			return s.lineStart == s.offset
 		}
 	case startOfFileAction:
 		return func(s *parserState) bool {
