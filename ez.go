@@ -43,8 +43,9 @@ const (
 	startOfLineAction = "StartOfLine"
 	endOfLineAction   = "EndOfLine"
 
-	indentAction = "Indent"
-	dedentAction = "Dedent"
+	indentedAction = "IndentedBlock"
+	indentAction   = "Indent"
+	dedentAction   = "Dedent"
 
 	byteAction       = "Byte"
 	byteRangeAction  = "ByteRange"
@@ -83,6 +84,7 @@ func StringMode() *stringMode {
 			partialTabAction,
 			startOfLineAction,
 			endOfLineAction,
+			indentedAction,
 			indentAction,
 			dedentAction,
 		},
@@ -100,6 +102,7 @@ func BinaryMode() *binaryMode {
 			startOfLineAction,
 			endOfLineAction,
 			rangeAction,
+			indentedAction,
 			indentAction,
 			dedentAction,
 		},
@@ -539,6 +542,30 @@ func (g *G) EndOfLine() {
 	}
 
 	a := &parseAction{kind: endOfLineAction, pos: p}
+	g.nb.append(a)
+}
+
+func (g *G) Indent() {
+	p := g.markPosition(indentAction)
+	if g.shouldExit(p, indentAction) {
+		return
+	}
+
+	a := &parseAction{kind: indentAction, pos: p}
+	g.nb.append(a)
+}
+
+func (g *G) Indented(stub func()) {
+	p := g.markPosition(indentedAction)
+	if g.shouldExit(p, indentedAction) {
+		return
+	} else if stub == nil {
+		g.addError(p, "cant call Sequence() with nil")
+		return
+	}
+
+	r := g.buildStub(indentedAction, stub)
+	a := &parseAction{kind: indentedAction, args: r.args, pos: p}
 	g.nb.append(a)
 }
 
@@ -1120,6 +1147,8 @@ type parserState struct {
 	lastSibling  int
 	countSibling int
 
+	matchIndent parseFunc
+
 	// indent_column int
 	// for when we match n whitespace against a tab
 	// leftover_tab int
@@ -1200,14 +1229,14 @@ func mergeState(s *parserState, new *parserState) {
 	*s = *new
 }
 
+func trimState(s *parserState, new *parserState) {
+	s.i.nodes = s.i.nodes[:s.numNodes]
+}
+
 func startCapture(s *parserState, st *parserState) {
 	*st = *s
 	st.countSibling = 0
 	st.lastSibling = 0
-}
-
-func trimCapture(s *parserState, new *parserState) {
-	s.i.nodes = s.i.nodes[:s.numNodes]
 }
 
 func mergeCapture(s *parserState, name string, new *parserState) {
@@ -1377,9 +1406,67 @@ func buildAction(c *grammarConfig, a *parseAction) parseFunc {
 			return out
 		}
 
-	// case partialTabAction
-	// case indentAction
+	case indentedAction:
+		ws := c.whitespace
+		rules := make([]parseFunc, len(a.args))
+		for i, r := range a.args {
+			rules[i] = buildAction(c, r)
+		}
+		return func(s *parserState) bool {
+			var s1 parserState
+			copyState(s, &s1)
+
+			oldMatch := s.matchIndent
+
+			newMatch := func(s *parserState) bool {
+				start := s.offset
+				if oldMatch != nil && !oldMatch(s) {
+					return false
+				}
+
+				// try and find whitespace
+				for {
+					if !acceptAny(s, ws) {
+						break
+					}
+				}
+				width := s.offset - start
+
+				if width == 0 {
+					return false
+				}
+
+				prefix := s.i.buf[start:s.offset]
+
+				s.matchIndent = func(s *parserState) bool {
+					return acceptString(s, prefix)
+				}
+
+				return true
+			}
+
+			s1.matchIndent = newMatch
+
+			for _, r := range rules {
+				if !r(&s1) {
+					return false
+				}
+			}
+			s1.matchIndent = s.matchIndent
+			mergeState(s, &s1)
+			return true
+		}
+
+	case indentAction:
+		return func(s *parserState) bool {
+			if s.matchIndent == nil {
+				return true
+			}
+			return s.matchIndent(s)
+		}
+
 	// case dedentAction
+	// case partialTabAction
 
 	case whitespaceAction:
 		ws := c.whitespace
@@ -1675,7 +1762,7 @@ func buildAction(c *grammarConfig, a *parseAction) parseFunc {
 					mergeState(s, &s1)
 					return true
 				}
-				trimCapture(s, &s1)
+				trimState(s, &s1)
 				if s1.i.choiceExit {
 					break
 				}

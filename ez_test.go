@@ -819,6 +819,42 @@ func TestCapture(t *testing.T) {
 	}
 }
 
+func TestTextIndent(t *testing.T) {
+	var parser *Parser
+	var ok bool
+
+	parser = BuildParser(func(g *G) {
+		g.Start = "expr"
+		g.Mode = TextMode().Tabstop(8)
+		g.Define("expr", func() {
+			g.String("block:")
+			g.Newline()
+			g.Indented(func() {
+				g.Repeat(0, 0, func() {
+					g.Indent()
+					g.String("row")
+					g.Newline()
+				})
+			})
+			g.StartOfLine()
+			g.EndOfFile()
+		})
+
+	})
+
+	if parser.Err() != nil {
+		t.Errorf("error defining grammar:\n%v", parser.Err())
+	} else {
+		ok = parser.testRule("expr",
+			[]string{"block:\n row\n", "block:\n row\n row\n row\n"},
+			[]string{"", "block:\nrow\n\n", "\n row", "block:\n row\n row\n  row\n"},
+		)
+		if !ok {
+			t.Error("indent test case failed")
+		}
+	}
+}
+
 var ok bool
 
 func BenchmarkParser(b *testing.B) {
