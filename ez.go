@@ -1724,12 +1724,18 @@ func buildAction(c *grammarConfig, a *parseAction) parseFunc {
 			c := 0
 			var s1 parserState
 			copyState(s, &s1)
+			start := s1.offset
 			for {
 				for _, r := range rules {
 					if !r(&s1) {
 						return c >= min_n
 					}
 				}
+
+				if s1.offset == start {
+					break
+				}
+
 				if c >= min_n {
 					mergeState(s, &s1)
 				} else {
