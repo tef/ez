@@ -676,10 +676,8 @@ func TestTextMode(t *testing.T) {
 		g.Start = "expr"
 		g.Mode = TextMode().Tabstop(8)
 		g.Define("expr", func() {
-			g.StartOfLine()
 			g.String("example")
 			g.Newline()
-			g.StartOfLine()
 			g.EndOfFile()
 		})
 

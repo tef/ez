@@ -199,7 +199,6 @@ func (m *binaryMode) grammarConfig() *grammarConfig {
 	return &grammarConfig{
 		name:            "binary mode",
 		actionsDisabled: m.actionsDisabled,
-		columnParser:    nil,
 		whitespace:      []string{},
 		newlines:        []string{},
 		tabstop:         0,
@@ -216,7 +215,6 @@ func (m *stringMode) grammarConfig() *grammarConfig {
 	return &grammarConfig{
 		name:            "string mode",
 		actionsDisabled: m.actionsDisabled,
-		columnParser:    nil,
 		whitespace:      m.whitespace,
 		newlines:        m.newline,
 		tabstop:         0,
@@ -236,7 +234,6 @@ func (m *textMode) grammarConfig() *grammarConfig {
 		name:            "text mode",
 		actionsDisabled: m.actionsDisabled,
 		stringsReserved: m.stringsReserved,
-		columnParser:    textModeColumnParser,
 		whitespace:      m.whitespace,
 		newlines:        m.newline,
 		tabstop:         m.tabstop,
@@ -952,7 +949,6 @@ func (g *G) Builder(name string, stub any) {
 type grammarConfig struct {
 	name            string
 	actionsDisabled []string
-	columnParser    columnParserFunc
 	whitespace      []string
 	newlines        []string
 	stringsReserved []string
@@ -1100,21 +1096,22 @@ func buildGrammar(pos *filePosition, mode GrammarMode, stub func(*G)) *Grammar {
 type parseFunc func(*parserState) bool
 
 type parserInput struct {
-	rules        []parseFunc
-	buf          string
-	length       int
-	columnParser columnParserFunc
-	nodes        []Node
-	tabstop      int
-	trace        bool
-	choiceExit   bool
+	rules   []parseFunc
+	buf     string
+	length  int
+	nodes   []Node
+	tabstop int
+
+	// these dont get set/used as much
+	trace bool
+	// this needs to be preserved even when a rule fails
+	choiceExit bool
 }
 
 type parserState struct {
 	i *parserInput
 
 	offset int
-	column int
 
 	numNodes int
 
@@ -1161,9 +1158,6 @@ func peekRune(s *parserState) (rune, int) {
 
 func advanceState(s *parserState, length int) {
 	newOffset := s.offset + length
-	if s.i.columnParser != nil {
-		s.column = s.i.columnParser(s.i.buf, s.column, s.i.tabstop, s.offset, newOffset)
-	}
 	s.offset = newOffset
 
 }
@@ -1288,9 +1282,7 @@ func (s *parserState) finalNode(name string) int {
 	}
 }
 
-type columnParserFunc func(string, int, int, int, int) int
-
-func textModeColumnParser(buf string, column int, tabstop int, oldOffset int, newOffset int) int {
+func countColumns(buf string, column int, tabstop int, oldOffset int, newOffset int) int {
 	for i := oldOffset; i < newOffset; i++ {
 		switch buf[i] {
 		case byte('\t'):
@@ -1323,7 +1315,7 @@ func buildAction(c *grammarConfig, a *parseAction) parseFunc {
 		fn := c.logFunc
 		return func(s *parserState) bool {
 			msg := fmt.Sprint(a.message...)
-			fn("%v: Print(%q) called, at offset %v, column %v\n", prefix, msg, s.offset, s.column)
+			fn("%v: Print(%q) called, at offset %v\n", prefix, msg, s.offset)
 			return true
 		}
 	case traceAction:
@@ -1406,7 +1398,7 @@ func buildAction(c *grammarConfig, a *parseAction) parseFunc {
 
 	case startOfLineAction:
 		return func(s *parserState) bool {
-			return s.column == 0
+			return false // s.column == 0
 		}
 	case startOfFileAction:
 		return func(s *parserState) bool {
@@ -1735,12 +1727,11 @@ func (p *Parser) Err() error {
 
 func (p *Parser) newParserState(s string) *parserState {
 	i := &parserInput{
-		rules:        p.rules,
-		buf:          s,
-		length:       len(s),
-		columnParser: p.config.columnParser,
-		tabstop:      p.config.tabstop,
-		nodes:        make([]Node, 128),
+		rules:   p.rules,
+		buf:     s,
+		length:  len(s),
+		tabstop: p.config.tabstop,
+		nodes:   make([]Node, 128),
 	}
 	return &parserState{i: i}
 }
