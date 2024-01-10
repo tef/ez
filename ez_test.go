@@ -827,17 +827,19 @@ func TestTextIndent(t *testing.T) {
 		g.Start = "expr"
 		g.Mode = TextMode().Tabstop(8)
 		g.Define("expr", func() {
-			g.String("block:")
-			g.Newline()
-			g.Indented(func() {
-				g.Repeat(0, 0, func() {
-					g.Indent()
-					g.String("row")
-					g.Newline()
+			g.Choice(func() {
+				g.String("block:")
+				g.Newline()
+				g.Indented(func() {
+					g.Repeat(0, 0, func() {
+						g.Indent()
+						g.Call("expr")
+					})
 				})
+			}, func() {
+				g.String("row")
+				g.Newline()
 			})
-			g.StartOfLine()
-			g.EndOfFile()
 		})
 
 	})
@@ -846,8 +848,8 @@ func TestTextIndent(t *testing.T) {
 		t.Errorf("error defining grammar:\n%v", parser.Err())
 	} else {
 		ok = parser.testRule("expr",
-			[]string{"block:\n row\n", "block:\n row\n row\n row\n"},
-			[]string{"", "block:\nrow\n\n", "\n row", "block:\n row\n row\n  row\n"},
+			[]string{"block:\n row\n", "block:\n row\n row\n row\n", "block:\n block:\n  row\n"},
+			[]string{"", "block:\nrow\n\n", "\n row", "block:\n row\n row\n  row\n", "block:\nblock:\n  row\n"},
 		)
 		if !ok {
 			t.Error("indent test case failed")
