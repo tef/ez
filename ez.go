@@ -43,9 +43,9 @@ const (
 	startOfLineAction = "StartOfLine"
 	endOfLineAction   = "EndOfLine"
 
-	indentedAction = "IndentedBlock"
-	indentAction   = "Indent"
-	dedentAction   = "Dedent"
+	indentedBlockAction = "IndentedBlock"
+	indentAction        = "Indent"
+	dedentAction        = "Dedent"
 
 	byteAction       = "Byte"
 	byteRangeAction  = "ByteRange"
@@ -84,7 +84,7 @@ func StringMode() *stringMode {
 			partialTabAction,
 			startOfLineAction,
 			endOfLineAction,
-			indentedAction,
+			indentedBlockAction,
 			indentAction,
 			dedentAction,
 		},
@@ -102,7 +102,7 @@ func BinaryMode() *binaryMode {
 			startOfLineAction,
 			endOfLineAction,
 			rangeAction,
-			indentedAction,
+			indentedBlockAction,
 			indentAction,
 			dedentAction,
 		},
@@ -555,17 +555,17 @@ func (g *G) Indent() {
 	g.nb.append(a)
 }
 
-func (g *G) Indented(stub func()) {
-	p := g.markPosition(indentedAction)
-	if g.shouldExit(p, indentedAction) {
+func (g *G) IndentedBlock(stub func()) {
+	p := g.markPosition(indentedBlockAction)
+	if g.shouldExit(p, indentedBlockAction) {
 		return
 	} else if stub == nil {
-		g.addError(p, "cant call Sequence() with nil")
+		g.addError(p, "cant call IndentedBlock() with nil")
 		return
 	}
 
-	r := g.buildStub(indentedAction, stub)
-	a := &parseAction{kind: indentedAction, args: r.args, pos: p}
+	r := g.buildStub(indentedBlockAction, stub)
+	a := &parseAction{kind: indentedBlockAction, args: r.args, pos: p}
 	g.nb.append(a)
 }
 
@@ -1139,6 +1139,7 @@ type parserState struct {
 	i *parserInput
 
 	offset int
+	column int
 
 	lineStart  int
 	lineNumber int
@@ -1189,8 +1190,31 @@ func peekRune(s *parserState) (rune, int) {
 
 func advanceState(s *parserState, length int) {
 	newOffset := s.offset + length
-	s.offset = newOffset
 
+	// in theory this should check whitespace and newlines, but
+	// in practice: no
+
+	for i := s.offset; i < newOffset; i++ {
+		switch s.i.buf[i] {
+		case byte('\t'):
+			width := s.i.tabstop - (s.column % s.i.tabstop)
+			s.column += width
+		case byte('\r'):
+			s.column = 0
+			s.lineStart = i + 1
+			s.lineNumber++
+		case byte('\n'):
+			s.column = 0
+			s.lineStart = i + 1
+			if i == 0 || (s.i.buf[i-1] != byte('\r')) {
+				s.lineNumber++
+			}
+		default:
+			s.column += 1
+		}
+	}
+
+	s.offset = newOffset
 }
 
 func acceptString(s *parserState, v string) bool {
@@ -1312,26 +1336,6 @@ func (s *parserState) finalNode(name string) int {
 	}
 }
 
-func countColumns(buf string, column int, tabstop int, oldOffset int, newOffset int) int {
-	for i := oldOffset; i < newOffset; i++ {
-		switch buf[i] {
-		case byte('\t'):
-			width := tabstop - (column % tabstop)
-			column += width
-		case byte('\r'):
-			column = 0
-		case byte('\n'):
-			if i > 0 && buf[i-1] != byte('\r') {
-				column = 0
-			}
-
-		default:
-			column += 1
-		}
-	}
-	return column
-}
-
 func buildAction(c *grammarConfig, a *parseAction) parseFunc {
 	if a == nil {
 		// when a func() stub has no rules
@@ -1345,7 +1349,7 @@ func buildAction(c *grammarConfig, a *parseAction) parseFunc {
 		fn := c.logFunc
 		return func(s *parserState) bool {
 			msg := fmt.Sprint(a.message...)
-			fn("%v: Print(%q) called, at line %v, char %v\n", prefix, msg, s.lineNumber, s.offset-s.lineStart)
+			fn("%v: Print(%q) called, at line %v, col %v\n", prefix, msg, s.lineNumber, s.column)
 			return true
 		}
 	case traceAction:
@@ -1358,7 +1362,7 @@ func buildAction(c *grammarConfig, a *parseAction) parseFunc {
 		}
 
 		return func(s *parserState) bool {
-			fn("%v: Trace() starting, at line %v, char %v\n", s.lineNumber, s.offset-s.lineStart)
+			fn("%v: Trace() starting, at line %v, col %v\n", prefix, s.lineNumber, s.column)
 			result := true
 
 			var s1 parserState
@@ -1372,10 +1376,10 @@ func buildAction(c *grammarConfig, a *parseAction) parseFunc {
 			}
 			s1.i.trace = false
 			if result {
-				fn("%v: Trace() ending, at offset %v\n", prefix, s1.offset)
+				fn("%v: Trace() ending, at line %v, col %v\n", prefix, s1.lineNumber, s1.column)
 				mergeState(s, &s1)
 			} else {
-				fn("%v: Trace() failing, at offset %v\n", prefix, s.offset)
+				fn("%v: Trace() failing, at line %v, col %v\n", prefix, s.lineNumber, s.column)
 			}
 			return result
 		}
@@ -1386,7 +1390,7 @@ func buildAction(c *grammarConfig, a *parseAction) parseFunc {
 		fn := c.logFunc
 		return func(s *parserState) bool {
 			if s.i.trace {
-				fn("%v: Call(%q) starting, at offset %v\n", prefix, name, s.offset)
+				fn("%v: Call(%q) starting, at line %v, col %v\n", prefix, name, s.lineNumber, s.column)
 			}
 
 			rule := s.i.rules[idx] // can't move this out to runtime unless we reorder defs
@@ -1398,15 +1402,15 @@ func buildAction(c *grammarConfig, a *parseAction) parseFunc {
 
 			if s.i.trace {
 				if out {
-					fn("%v: Call(%q) exiting, at offset %v\n", prefix, name, s.offset)
+					fn("%v: Call(%q) exiting, at line %v, col %v\n", prefix, name, s.lineNumber, s.column)
 				} else {
-					fn("%v: Call(%q) failing, at offset %v\n", prefix, name, s.offset)
+					fn("%v: Call(%q) failing, at line %v, col %v\n", prefix, name, s.lineNumber, s.column)
 				}
 			}
 			return out
 		}
 
-	case indentedAction:
+	case indentedBlockAction:
 		ws := c.whitespace
 		rules := make([]parseFunc, len(a.args))
 		for i, r := range a.args {
@@ -1419,11 +1423,11 @@ func buildAction(c *grammarConfig, a *parseAction) parseFunc {
 			oldMatch := s.matchIndent
 
 			newMatch := func(s *parserState) bool {
-				start := s.offset
 				if oldMatch != nil && !oldMatch(s) {
 					return false
 				}
 
+				start := s.offset
 				// try and find whitespace
 				for {
 					if !acceptAny(s, ws) {
@@ -1439,7 +1443,7 @@ func buildAction(c *grammarConfig, a *parseAction) parseFunc {
 				prefix := s.i.buf[start:s.offset]
 
 				s.matchIndent = func(s *parserState) bool {
-					return acceptString(s, prefix)
+					return (oldMatch == nil || oldMatch(s)) && acceptString(s, prefix)
 				}
 
 				return true
@@ -1482,8 +1486,6 @@ func buildAction(c *grammarConfig, a *parseAction) parseFunc {
 		nl := c.newlines
 		return func(s *parserState) bool {
 			if acceptAny(s, nl) {
-				s.lineStart = s.offset
-				s.lineNumber++
 				return true
 			}
 

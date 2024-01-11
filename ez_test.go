@@ -830,7 +830,7 @@ func TestTextIndent(t *testing.T) {
 			g.Choice(func() {
 				g.String("block:")
 				g.Newline()
-				g.Indented(func() {
+				g.IndentedBlock(func() {
 					g.Repeat(0, 0, func() {
 						g.Indent()
 						g.Call("expr")
