@@ -819,7 +819,7 @@ func TestCapture(t *testing.T) {
 	}
 }
 
-func TestTextIndent(t *testing.T) {
+func TestBlockIndent(t *testing.T) {
 	var parser *Parser
 	var ok bool
 
@@ -850,6 +850,52 @@ func TestTextIndent(t *testing.T) {
 		ok = parser.testRule("expr",
 			[]string{"block:\n row\n", "block:\n row\n row\n row\n", "block:\n block:\n  row\n"},
 			[]string{"", "block:\nrow\n\n", "\n row", "block:\n row\n row\n  row\n", "block:\nblock:\n  row\n"},
+		)
+		if !ok {
+			t.Error("indent test case failed")
+		}
+	}
+}
+
+func TestOffsideIndent(t *testing.T) {
+	var parser *Parser
+	var ok bool
+
+	parser = BuildParser(func(g *G) {
+		g.Start = "expr"
+		g.Mode = TextMode().Tabstop(8)
+		g.Define("expr", func() {
+			g.Trace(func() {
+				g.Choice(func() {
+					g.Choice(func() {
+						g.String("do")
+					}, func() {
+						g.String("let")
+					})
+
+					g.OffsideBlock(func() {
+						g.Whitespace()
+						g.Newline()
+						g.Repeat(0, 0, func() {
+							g.Indent()
+							g.Call("expr")
+						})
+					})
+				}, func() {
+					g.String("row")
+					g.Newline()
+				})
+			})
+		})
+
+	})
+
+	if parser.Err() != nil {
+		t.Errorf("error defining grammar:\n%v", parser.Err())
+	} else {
+		ok = parser.testRule("expr",
+			[]string{"row\n", "do\n  row\n", "let\n   row\n   row\n   row\n", "do\n  let\n     row\n"},
+			[]string{"", "do\nrow\n", "\nrow", "do\n  let\n    row\n"},
 		)
 		if !ok {
 			t.Error("indent test case failed")

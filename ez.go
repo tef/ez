@@ -44,6 +44,7 @@ const (
 	endOfLineAction   = "EndOfLine"
 
 	indentedBlockAction = "IndentedBlock"
+	offsideBlockAction  = "OffsideBlock"
 	indentAction        = "Indent"
 	dedentAction        = "Dedent"
 
@@ -85,6 +86,7 @@ func StringMode() *stringMode {
 			startOfLineAction,
 			endOfLineAction,
 			indentedBlockAction,
+			offsideBlockAction,
 			indentAction,
 			dedentAction,
 		},
@@ -103,6 +105,7 @@ func BinaryMode() *binaryMode {
 			endOfLineAction,
 			rangeAction,
 			indentedBlockAction,
+			offsideBlockAction,
 			indentAction,
 			dedentAction,
 		},
@@ -552,6 +555,20 @@ func (g *G) Indent() {
 	}
 
 	a := &parseAction{kind: indentAction, pos: p}
+	g.nb.append(a)
+}
+
+func (g *G) OffsideBlock(stub func()) {
+	p := g.markPosition(offsideBlockAction)
+	if g.shouldExit(p, offsideBlockAction) {
+		return
+	} else if stub == nil {
+		g.addError(p, "cant OffsideBlock() with nil")
+		return
+	}
+
+	r := g.buildStub(offsideBlockAction, stub)
+	a := &parseAction{kind: offsideBlockAction, args: r.args, pos: p}
 	g.nb.append(a)
 }
 
@@ -1143,6 +1160,7 @@ type parserState struct {
 
 	lineStart  int
 	lineNumber int
+	lineIndent int
 
 	numNodes     int
 	lastSibling  int
@@ -1201,10 +1219,12 @@ func advanceState(s *parserState, length int) {
 			s.column += width
 		case byte('\r'):
 			s.column = 0
+			s.lineIndent = 0
 			s.lineStart = i + 1
 			s.lineNumber++
 		case byte('\n'):
 			s.column = 0
+			s.lineIndent = 0
 			s.lineStart = i + 1
 			if i == 0 || (s.i.buf[i-1] != byte('\r')) {
 				s.lineNumber++
@@ -1226,6 +1246,7 @@ func acceptString(s *parserState, v string) bool {
 	}
 	return false
 }
+
 func acceptBytes(s *parserState, v []byte) bool {
 	length_v := len(v)
 	b := peekString(s, length_v)
@@ -1240,6 +1261,28 @@ func acceptAny(s *parserState, o []string) bool {
 	for _, v := range o {
 		if acceptString(s, v) {
 			return true
+		}
+	}
+	return false
+}
+
+func acceptWhitespace(s *parserState, width int) bool {
+	column := s.column
+	for i := s.offset; i < s.i.length; i++ {
+		switch s.i.buf[i] {
+		case byte('\t'):
+			tabWidth := s.i.tabstop - (column % s.i.tabstop)
+			column += tabWidth
+		default:
+			column += 1
+		}
+
+		if column-s.column == width {
+			advanceState(s, i-s.offset+1)
+			return true
+		} else if column-s.column > width {
+			// partial tab
+			break
 		}
 	}
 	return false
@@ -1410,6 +1453,41 @@ func buildAction(c *grammarConfig, a *parseAction) parseFunc {
 			return out
 		}
 
+	case offsideBlockAction:
+		rules := make([]parseFunc, len(a.args))
+		for i, r := range a.args {
+			rules[i] = buildAction(c, r)
+		}
+		return func(s *parserState) bool {
+			var s1 parserState
+			copyState(s, &s1)
+
+			oldMatch := s.matchIndent
+
+			width := s.column - s.lineIndent
+
+			newMatch := func(s *parserState) bool {
+				fmt.Printf("matching %v\n", width)
+				if oldMatch != nil && !oldMatch(s) {
+					return false
+				}
+
+				return acceptWhitespace(s, width)
+			}
+
+			s1.matchIndent = newMatch
+
+			for _, r := range rules {
+				if !r(&s1) {
+					return false
+				}
+			}
+
+			s1.matchIndent = oldMatch
+			mergeState(s, &s1)
+			return true
+		}
+
 	case indentedBlockAction:
 		ws := c.whitespace
 		rules := make([]parseFunc, len(a.args))
@@ -1464,9 +1542,13 @@ func buildAction(c *grammarConfig, a *parseAction) parseFunc {
 	case indentAction:
 		return func(s *parserState) bool {
 			if s.matchIndent == nil {
+				s.lineIndent = s.column
+				return true
+			} else if s.matchIndent(s) {
+				s.lineIndent = s.column
 				return true
 			}
-			return s.matchIndent(s)
+			return false
 		}
 
 	// case dedentAction
