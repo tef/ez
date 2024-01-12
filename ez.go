@@ -1267,6 +1267,9 @@ func acceptAny(s *parserState, o []string) bool {
 }
 
 func acceptWhitespace(s *parserState, width int) bool {
+	if width == 0 {
+		return true
+	}
 	column := s.column
 	for i := s.offset; i < s.i.length; i++ {
 		switch s.i.buf[i] {
@@ -1393,6 +1396,9 @@ func buildAction(c *grammarConfig, a *parseAction) parseFunc {
 		return func(s *parserState) bool {
 			msg := fmt.Sprint(a.message...)
 			fn("%v: Print(%q) called, at line %v, col %v\n", prefix, msg, s.lineNumber, s.column)
+			if s.offset < s.i.length {
+				fn("next char: %q\n", s.i.buf[s.offset])
+			}
 			return true
 		}
 	case traceAction:
@@ -1820,7 +1826,7 @@ func buildAction(c *grammarConfig, a *parseAction) parseFunc {
 				}
 
 				if s1.offset == start {
-					// zero width
+					// reject zero width matches
 					break
 				}
 
