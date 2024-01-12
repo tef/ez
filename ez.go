@@ -1405,6 +1405,9 @@ func buildAction(c *grammarConfig, a *parseAction) parseFunc {
 		}
 
 		return func(s *parserState) bool {
+			if s.i.trace {
+				return true
+			}
 			fn("%v: Trace() starting, at line %v, col %v\n", prefix, s.lineNumber, s.column)
 			result := true
 
@@ -1467,7 +1470,6 @@ func buildAction(c *grammarConfig, a *parseAction) parseFunc {
 			width := s.column - s.lineIndent
 
 			newMatch := func(s *parserState) bool {
-				fmt.Printf("matching %v\n", width)
 				if oldMatch != nil && !oldMatch(s) {
 					return false
 				}
@@ -1808,8 +1810,9 @@ func buildAction(c *grammarConfig, a *parseAction) parseFunc {
 			c := 0
 			var s1 parserState
 			copyState(s, &s1)
-			start := s1.offset
 			for {
+				start := s1.offset
+
 				for _, r := range rules {
 					if !r(&s1) {
 						return c >= min_n
@@ -1817,18 +1820,21 @@ func buildAction(c *grammarConfig, a *parseAction) parseFunc {
 				}
 
 				if s1.offset == start {
+					// zero width
 					break
 				}
 
+				c++
+
 				if c >= min_n {
 					mergeState(s, &s1)
-				} else {
 				}
 
 				if max_n != 0 && c >= max_n {
 					break
 				}
 			}
+
 			return c >= min_n
 		}
 
@@ -1916,6 +1922,7 @@ func (p *Parser) newParserState(s string) *parserState {
 		length:  len(s),
 		tabstop: p.config.tabstop,
 		nodes:   make([]Node, 128),
+		trace:   false,
 	}
 	return &parserState{i: i}
 }
