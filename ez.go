@@ -1276,8 +1276,10 @@ func acceptWhitespace(s *parserState, width int) bool {
 		case byte('\t'):
 			tabWidth := s.i.tabstop - (column % s.i.tabstop)
 			column += tabWidth
-		default:
+		case byte(' '):
 			column += 1
+		default:
+			break
 		}
 
 		if column-s.column == width {

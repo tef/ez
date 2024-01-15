@@ -853,6 +853,7 @@ func TestBlockIndent(t *testing.T) {
 				"", "block:\nrow\n\n", "\n row",
 				"block:\n row\n row\n  row\n",
 				"block:\nblock:\n  row\n",
+				"block:\nxrow\n",
 			},
 		)
 		if !ok {
@@ -897,7 +898,7 @@ func TestOffsideIndent(t *testing.T) {
 	} else {
 		ok = parser.testRule("expr",
 			[]string{"row\n", "do\n  row\n", "let\n   row\n   row\n   row\n", "do\n  let\n     row\n"},
-			[]string{"", "do\nrow\n", "\nrow", "do\n  let\n    row\n"},
+			[]string{"", "do\nrow\n", "do\nxxrow\n", "\nrow", "do\n  let\n    row\n"},
 		)
 		if !ok {
 			t.Error("indent test case failed")
