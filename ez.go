@@ -1266,29 +1266,31 @@ func acceptAny(s *parserState, o []string) bool {
 	return false
 }
 
-func acceptWhitespace(s *parserState, width int) bool {
-	if width == 0 {
-		return true
-	}
+func acceptWhitespace(s *parserState, minWidth int, maxWidth int) bool {
 	column := s.column
+	w := 0
+	c := 0
 	for i := s.offset; i < s.i.length; i++ {
 		switch s.i.buf[i] {
 		case byte('\t'):
 			tabWidth := s.i.tabstop - (column % s.i.tabstop)
 			column += tabWidth
+			w += tabWidth
 		case byte(' '):
 			column += 1
+			w += 1
 		default:
 			break
 		}
+		c += 1
 
-		if column-s.column == width {
-			advanceState(s, i-s.offset+1)
-			return true
-		} else if column-s.column > width {
-			// partial tab
+		if maxWidth > 0 && w >= maxWidth {
 			break
 		}
+	}
+	if w >= minWidth && (maxWidth == 0 || w <= maxWidth) {
+		advanceState(s, c)
+		return true
 	}
 	return false
 }
@@ -1489,7 +1491,10 @@ func buildAction(c *grammarConfig, a *parseAction) parseFunc {
 					return false
 				}
 
-				return acceptWhitespace(s, width)
+				if width == 0 {
+					return true
+				}
+				return acceptWhitespace(s, width, width)
 			}
 
 			s1.matchIndent = newMatch
@@ -1506,7 +1511,6 @@ func buildAction(c *grammarConfig, a *parseAction) parseFunc {
 		}
 
 	case indentedBlockAction:
-		ws := c.whitespace
 		rules := make([]parseFunc, len(a.args))
 		for i, r := range a.args {
 			rules[i] = buildAction(c, r)
@@ -1524,14 +1528,7 @@ func buildAction(c *grammarConfig, a *parseAction) parseFunc {
 
 				start := s.offset
 				// try and find whitespace
-				for {
-					if !acceptAny(s, ws) {
-						break
-					}
-				}
-				width := s.offset - start
-
-				if width == 0 {
+				if !acceptWhitespace(s, 1, 0) {
 					return false
 				}
 
