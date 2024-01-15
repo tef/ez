@@ -1411,10 +1411,11 @@ func buildAction(c *grammarConfig, a *parseAction) parseFunc {
 		}
 
 		return func(s *parserState) bool {
-			if s.i.trace {
-				return true
+			oldTrace := s.i.trace
+
+			if !oldTrace {
+				fn("%v: Trace() starting, at line %v, col %v\n", prefix, s.lineNumber, s.column)
 			}
-			fn("%v: Trace() starting, at line %v, col %v\n", prefix, s.lineNumber, s.column)
 			result := true
 
 			var s1 parserState
@@ -1426,13 +1427,19 @@ func buildAction(c *grammarConfig, a *parseAction) parseFunc {
 					break
 				}
 			}
-			s1.i.trace = false
-			if result {
-				fn("%v: Trace() ending, at line %v, col %v\n", prefix, s1.lineNumber, s1.column)
+
+			if !oldTrace {
+				s1.i.trace = false
+				if result {
+					fn("%v: Trace() ending, at line %v, col %v\n", prefix, s1.lineNumber, s1.column)
+					mergeState(s, &s1)
+				} else {
+					fn("%v: Trace() failing, at line %v, col %v\n", prefix, s.lineNumber, s.column)
+				}
+			} else if result {
 				mergeState(s, &s1)
-			} else {
-				fn("%v: Trace() failing, at line %v, col %v\n", prefix, s.lineNumber, s.column)
 			}
+
 			return result
 		}
 	case callAction:
