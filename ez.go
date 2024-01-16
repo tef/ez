@@ -22,6 +22,7 @@ const (
 	choiceAction    = "Choice"
 	cutAction       = "Cut"
 	sequenceAction  = "Sequence"
+	doAction        = "Do"
 	optionalAction  = "Optional"
 	repeatAction    = "Repeat"
 	lookaheadAction = "Lookahead"
@@ -673,34 +674,6 @@ func (g *G) String(s ...string) {
 	g.nb.append(a)
 }
 
-func (g *G) Range(s ...string) RangeOptions {
-	p := g.markPosition(rangeAction)
-	ro := RangeOptions{
-		g: g,
-		p: p,
-	}
-	if g.shouldExit(p, rangeAction) {
-		return ro
-	}
-	if len(s) == 0 {
-		g.addError(p, "missing operand")
-		return ro
-	}
-
-	args := make([]string, len(s))
-	for i, v := range s {
-		r := []rune(v)
-		if !(len(r) == 1 || (len(r) == 3 && r[1] == '-' && r[0] < r[2])) {
-			g.addError(p, "invalid range", v)
-		}
-		args[i] = v
-	}
-	a := &parseAction{kind: rangeAction, ranges: args, pos: p}
-	ro.a = a
-	g.nb.append(a)
-	return ro
-}
-
 func (g *G) Byte() {
 	p := g.markPosition(byteAction)
 	if g.shouldExit(p, byteAction) {
@@ -767,6 +740,44 @@ func (g *G) Bytes(s ...[]byte) {
 	g.nb.append(a)
 }
 
+type RangeOptions struct {
+	g *G
+	a *parseAction
+	p *filePosition
+}
+
+func (ro RangeOptions) Invert() RangeOptions {
+	return ro.g.invertRange(ro.p, ro.a)
+}
+
+func (g *G) Range(s ...string) RangeOptions {
+	p := g.markPosition(rangeAction)
+	ro := RangeOptions{
+		g: g,
+		p: p,
+	}
+	if g.shouldExit(p, rangeAction) {
+		return ro
+	}
+	if len(s) == 0 {
+		g.addError(p, "missing operand")
+		return ro
+	}
+
+	args := make([]string, len(s))
+	for i, v := range s {
+		r := []rune(v)
+		if !(len(r) == 1 || (len(r) == 3 && r[1] == '-' && r[0] < r[2])) {
+			g.addError(p, "invalid range", v)
+		}
+		args[i] = v
+	}
+	a := &parseAction{kind: rangeAction, ranges: args, pos: p}
+	ro.a = a
+	g.nb.append(a)
+	return ro
+}
+
 func (g *G) ByteRange(s ...string) RangeOptions {
 	p := g.markPosition(byteRangeAction)
 	ro := RangeOptions{
@@ -794,16 +805,6 @@ func (g *G) ByteRange(s ...string) RangeOptions {
 	ro.a = a
 	g.nb.append(a)
 	return ro
-}
-
-type RangeOptions struct {
-	g *G
-	a *parseAction
-	p *filePosition
-}
-
-func (ro RangeOptions) Invert() RangeOptions {
-	return ro.g.invertRange(ro.p, ro.a)
 }
 
 func (g *G) invertRange(rangePos *filePosition, a *parseAction) RangeOptions {
