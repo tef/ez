@@ -475,9 +475,9 @@ func TestStringMode(t *testing.T) {
 		g.Start = "expr"
 		g.Mode = StringMode()
 		g.Define("expr", func() {
-			g.Whitespace()
+			g.WhitespaceNewline()
 			g.String("example")
-			g.Whitespace()
+			g.WhitespaceNewline()
 			g.EndOfFile()
 		})
 

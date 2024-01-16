@@ -37,8 +37,10 @@ const (
 	peekRuneAction   = "PeekRune"
 	stringAction     = "String"
 	rangeAction      = "Range"
-	whitespaceAction = "Whitespace"
-	newlineAction    = "Newline"
+
+	whitespaceAction        = "Whitespace"
+	newlineAction           = "Newline"
+	whitespaceNewlineAction = "WhitespaceNewline"
 
 	partialTabAction  = "PartialTab"
 	startOfLineAction = "StartOfLine"
@@ -58,6 +60,9 @@ const (
 
 var ParseError = errors.New("failed to parse")
 
+var Whitespace = []string{" ", "\t"}
+var Newline = []string{"\r\n", "\r", "\n"}
+
 func Printf(format string, a ...any) {
 	// used for g.LogFunc = ez.Printf
 	fmt.Printf(format, a...)
@@ -65,8 +70,6 @@ func Printf(format string, a ...any) {
 
 func TextMode() *textMode {
 	return &textMode{
-		whitespace:      []string{" ", "\t"},
-		newline:         []string{"\r\n", "\r", "\n"},
 		tabstop:         8,
 		stringsReserved: []string{"\r\n", "\r", "\n", "\t"},
 		actionsDisabled: []string{
@@ -80,8 +83,6 @@ func TextMode() *textMode {
 }
 func StringMode() *stringMode {
 	return &stringMode{
-		whitespace: []string{" ", "\t", "\r\n", "\r", "\n"},
-		newline:    []string{"\r\n", "\r", "\n"},
 		actionsDisabled: []string{
 			partialTabAction,
 			startOfLineAction,
@@ -206,15 +207,11 @@ func (m *binaryMode) grammarConfig() *grammarConfig {
 	return &grammarConfig{
 		name:            "binary mode",
 		actionsDisabled: m.actionsDisabled,
-		whitespace:      []string{},
-		newlines:        []string{},
-		tabstop:         0,
+		tabstop:         1,
 	}
 }
 
 type stringMode struct {
-	whitespace      []string
-	newline         []string
 	actionsDisabled []string
 }
 
@@ -222,15 +219,11 @@ func (m *stringMode) grammarConfig() *grammarConfig {
 	return &grammarConfig{
 		name:            "string mode",
 		actionsDisabled: m.actionsDisabled,
-		whitespace:      m.whitespace,
-		newlines:        m.newline,
-		tabstop:         0,
+		tabstop:         1,
 	}
 }
 
 type textMode struct {
-	whitespace      []string
-	newline         []string
 	tabstop         int
 	actionsDisabled []string
 	stringsReserved []string
@@ -241,8 +234,6 @@ func (m *textMode) grammarConfig() *grammarConfig {
 		name:            "text mode",
 		actionsDisabled: m.actionsDisabled,
 		stringsReserved: m.stringsReserved,
-		whitespace:      m.whitespace,
-		newlines:        m.newline,
 		tabstop:         m.tabstop,
 	}
 }
@@ -506,6 +497,15 @@ func (g *G) Newline() {
 		return
 	}
 	a := &parseAction{kind: newlineAction, pos: p}
+	g.nb.append(a)
+}
+
+func (g *G) WhitespaceNewline() {
+	p := g.markPosition(whitespaceAction)
+	if g.shouldExit(p, whitespaceAction) {
+		return
+	}
+	a := &parseAction{kind: whitespaceNewlineAction, pos: p}
 	g.nb.append(a)
 }
 
@@ -1122,8 +1122,6 @@ func (g *G) Builder(name string, stub any) {
 type grammarConfig struct {
 	name            string
 	actionsDisabled []string
-	whitespace      []string
-	newlines        []string
 	stringsReserved []string
 	tabstop         int
 	start           string
@@ -1399,6 +1397,7 @@ func acceptWhitespace(s *parserState, minWidth int, maxWidth int) bool {
 	column := s.column
 	w := 0
 	c := 0
+outer:
 	for i := s.offset; i < s.i.length; i++ {
 		switch s.i.buf[i] {
 		case byte('\t'):
@@ -1409,7 +1408,7 @@ func acceptWhitespace(s *parserState, minWidth int, maxWidth int) bool {
 			column += 1
 			w += 1
 		default:
-			break
+			break outer
 		}
 		c += 1
 
@@ -1419,6 +1418,43 @@ func acceptWhitespace(s *parserState, minWidth int, maxWidth int) bool {
 	}
 	if w >= minWidth && (maxWidth == 0 || w <= maxWidth) {
 		advanceState(s, c)
+		return true
+	}
+	return false
+}
+
+func acceptWhitespaceOrNewline(s *parserState) bool {
+	c := 0
+outer:
+	for i := s.offset; i < s.i.length; i++ {
+		switch s.i.buf[i] {
+		case byte('\t'), byte(' '), byte('\r'), byte('\n'):
+			c += 1
+		default:
+			break outer
+		}
+	}
+	if c > 0 {
+		advanceState(s, c)
+		return true
+	}
+	return false
+}
+
+func acceptNewline(s *parserState) bool {
+	b := peekByte(s)
+	if b == byte('\n') {
+		advanceState(s, 1)
+		return true
+	} else if b == byte('\r') {
+		advanceState(s, 1)
+		if s.offset >= s.i.length {
+			return true
+		}
+		b = peekByte(s)
+		if b == byte('\n') {
+			advanceState(s, 1)
+		}
 		return true
 	}
 	return false
@@ -1698,23 +1734,27 @@ func buildAction(c *grammarConfig, a *parseAction) parseFunc {
 	// case partialTabAction
 
 	case whitespaceAction:
-		ws := c.whitespace
 		return func(s *parserState) bool {
-			for {
-				if !acceptAny(s, ws) {
-					break
-				}
+			if atEnd(s) {
+				return true
 			}
+			acceptWhitespace(s, 0, 0)
+			return true
+		}
+	case whitespaceNewlineAction:
+		return func(s *parserState) bool {
+			if atEnd(s) {
+				return true
+			}
+			acceptWhitespaceOrNewline(s)
 			return true
 		}
 	case endOfLineAction, newlineAction:
-		nl := c.newlines
 		return func(s *parserState) bool {
-			if acceptAny(s, nl) {
-				return true
+			if atEnd(s) {
+				return false
 			}
-
-			return false
+			return acceptNewline(s)
 		}
 
 	case startOfLineAction:
