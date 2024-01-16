@@ -942,20 +942,83 @@ func (g *G) Reject(stub func()) {
 	g.nb.append(a)
 }
 
-func (g *G) Repeat(min_t int, max_t int, stub func()) {
+type RepeatOptions struct {
+	g *G
+	a *parseAction
+	p *filePosition
+}
+
+func (ro RepeatOptions) Do(stub func()) {
+	ro.g.repeatSequence(ro.p, ro.a, stub)
+}
+
+func (ro RepeatOptions) Choice(options ...func()) {
+	ro.g.repeatChoice(ro.p, ro.a, options)
+}
+
+func (g *G) Repeat(min_t int, max_t int) RepeatOptions {
 	p := g.markPosition(repeatAction)
+	ro := RepeatOptions{g: g, p: p}
+
 	if g.shouldExit(p, repeatAction) {
+		return ro
+	}
+
+	a := &parseAction{kind: repeatAction, min: min_t, max: max_t, pos: p}
+	g.nb.append(a)
+	ro.a = a
+	return ro
+
+}
+
+func (g *G) repeatSequence(repeatPos *filePosition, a *parseAction, stub func()) {
+	p := g.markPosition(repeatAction)
+	if a == nil || g.shouldExit(p, a.kind) {
 		return
-	} else if stub == nil {
-		g.addError(p, "cant call Repeat() with nil")
+	}
+
+	if p.n-repeatPos.n != 1 {
+		g.addError(p, "called in wrong position")
+		return
+	}
+
+	if stub == nil {
+		g.addError(p, "cant call Do() with nil")
 		return
 	}
 
 	r := g.buildStub(repeatAction, stub)
-	a := &parseAction{kind: repeatAction, args: r.args, min: min_t, max: max_t, pos: p}
-	g.nb.append(a)
+	a.args = r.args
 }
 
+func (g *G) repeatChoice(repeatPos *filePosition, a *parseAction, options []func()) {
+	p := g.markPosition(repeatAction)
+	if a == nil || g.shouldExit(p, a.kind) {
+		return
+	}
+
+	if p.n-repeatPos.n != 1 {
+		g.addError(p, "called in wrong position")
+		return
+	}
+
+	if len(options) == 0 {
+		g.addError(p, "cant call Choice() with nil")
+		return
+	}
+
+	args := make([]*parseAction, len(options))
+	for i, stub := range options {
+		if stub == nil {
+			g.addError(p, "cant call Choice() with nil")
+		} else {
+			r := g.buildStub(choiceAction, stub)
+			args[i] = r.buildSequence(p)
+		}
+	}
+	c := &parseAction{kind: choiceAction, args: args, pos: p}
+	a.args = []*parseAction{c}
+}
 func (g *G) Builder(name string, stub any) {
 	p := g.markPosition(builderAction)
 	if g.nb == nil {

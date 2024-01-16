@@ -9,37 +9,33 @@ var YamlParser = ez.BuildParser(func(g *ez.G) {
 	g.Start = "document"
 
 	g.Define("whitespace", func() {
-		g.Repeat(0, 0, func() {
-			g.Choice(func() {
-				g.Whitespace()
-				g.Newline()
-			}, func() {
-				g.Whitespace()
-				g.String("#")
-				g.Repeat(0, 0, func() {
-					g.Range("\n").Invert()
-				})
-				g.Newline()
-			}, func() {
-				g.Range(" ", "\t") // eww
-				// g.Whitespace() // # min length here whoops
+		g.Repeat(0, 0).Choice(func() {
+			g.Whitespace()
+			g.Newline()
+		}, func() {
+			g.Whitespace()
+			g.String("#")
+			g.Repeat(0, 0).Do(func() {
+				g.Range("\n").Invert()
 			})
+			g.Newline()
+		}, func() {
+			g.Range(" ", "\t") // eww
+			// g.Whitespace() // # min length here whoops
 		})
 	})
 
 	g.Define("newline", func() {
-		g.Repeat(0, 0, func() {
-			g.Choice(func() {
-				g.Whitespace()
-				g.Newline()
-			}, func() {
-				g.Whitespace()
-				g.String("#")
-				g.Repeat(0, 0, func() {
-					g.Range("\n").Invert()
-				})
-				g.Newline()
+		g.Repeat(0, 0).Choice(func() {
+			g.Whitespace()
+			g.Newline()
+		}, func() {
+			g.Whitespace()
+			g.String("#")
+			g.Repeat(0, 0).Do(func() {
+				g.Range("\n").Invert()
 			})
+			g.Newline()
 		})
 	})
 
@@ -56,7 +52,7 @@ var YamlParser = ez.BuildParser(func(g *ez.G) {
 			g.Call("whitespace")
 			g.Call("object")
 		})
-		g.Repeat(0, 0, func() {
+		g.Repeat(0, 0).Do(func() {
 			g.Call("newline")
 		})
 	})
@@ -89,7 +85,7 @@ var YamlParser = ez.BuildParser(func(g *ez.G) {
 					g.Call("indented-value")
 				})
 
-				g.Repeat(0, 0, func() {
+				g.Repeat(0, 0).Do(func() {
 					g.Newline()
 					g.Call("key")
 					g.Whitespace()
@@ -127,7 +123,7 @@ var YamlParser = ez.BuildParser(func(g *ez.G) {
 					g.Whitespace()
 					g.Call("indented-value")
 				})
-				g.Repeat(0, 0, func() {
+				g.Repeat(0, 0).Do(func() {
 					g.Newline()
 					g.Indent()
 					g.String("-")
@@ -155,7 +151,7 @@ var YamlParser = ez.BuildParser(func(g *ez.G) {
 		}, func() {
 			g.Capture("key", func() {
 				g.Range("a-z", "A-Z", "_")
-				g.Repeat(0, 0, func() {
+				g.Repeat(0, 0).Do(func() {
 					g.Range("a-z", "A-Z", "_", "0-9")
 				})
 			})
@@ -193,7 +189,7 @@ var YamlParser = ez.BuildParser(func(g *ez.G) {
 		g.Capture("list", func() {
 			g.Optional(func() {
 				g.Call("value")
-				g.Repeat(0, 0, func() {
+				g.Repeat(0, 0).Do(func() {
 					g.Whitespace()
 					g.String(",")
 					g.Whitespace()
@@ -217,7 +213,7 @@ var YamlParser = ez.BuildParser(func(g *ez.G) {
 				g.Call("value")
 			})
 			g.Whitespace()
-			g.Repeat(0, 0, func() {
+			g.Repeat(0, 0).Do(func() {
 				g.String(",")
 				g.Whitespace()
 				g.Call("string")
@@ -234,27 +230,25 @@ var YamlParser = ez.BuildParser(func(g *ez.G) {
 	g.Define("string", func() {
 		g.String("\"")
 		g.Capture("string", func() {
-			g.Repeat(0, 0, func() {
-				g.Choice(func() {
-					g.String("\\u")
-					g.Cut()
-					g.Range("0-9", "a-f", "A-F")
-					g.Range("0-9", "a-f", "A-F")
-					g.Range("0-9", "a-f", "A-F")
-					g.Range("0-9", "a-f", "A-F")
-				}, func() {
-					g.String("\\")
-					g.Cut()
-					g.String(
-						"\"", "\\", "/", "b",
-						"f", "n", "r", "t",
-					)
-				}, func() {
-					g.Reject(func() {
-						g.String("\\", "\"")
-					})
-					g.Rune()
+			g.Repeat(0, 0).Choice(func() {
+				g.String("\\u")
+				g.Cut()
+				g.Range("0-9", "a-f", "A-F")
+				g.Range("0-9", "a-f", "A-F")
+				g.Range("0-9", "a-f", "A-F")
+				g.Range("0-9", "a-f", "A-F")
+			}, func() {
+				g.String("\\")
+				g.Cut()
+				g.String(
+					"\"", "\\", "/", "b",
+					"f", "n", "r", "t",
+				)
+			}, func() {
+				g.Reject(func() {
+					g.String("\\", "\"")
 				})
+				g.Rune()
 			})
 		})
 		g.String("\"")
@@ -265,12 +259,12 @@ var YamlParser = ez.BuildParser(func(g *ez.G) {
 			g.Optional(func() {
 				g.String("-")
 			})
-			g.Repeat(1, 0, func() {
+			g.Repeat(1, 0).Do(func() {
 				g.Range("0-9")
 			})
 			g.Optional(func() {
 				g.String(".")
-				g.Repeat(0, 0, func() {
+				g.Repeat(0, 0).Do(func() {
 					g.Range("0-9")
 				})
 			})
@@ -278,7 +272,7 @@ var YamlParser = ez.BuildParser(func(g *ez.G) {
 				g.String("e", "E")
 				g.Optional(func() {
 					g.String("+", "-")
-					g.Repeat(0, 0, func() {
+					g.Repeat(0, 0).Do(func() {
 						g.Range("0-9")
 					})
 				})

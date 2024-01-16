@@ -48,7 +48,7 @@ var JsonParser = ez.BuildParser(func(g *ez.G) {
 		g.Capture("list", func() {
 			g.Optional(func() {
 				g.Call("value")
-				g.Repeat(0, 0, func() {
+				g.Repeat(0, 0).Do(func() {
 					g.Whitespace()
 					g.String(",")
 					g.Whitespace()
@@ -72,7 +72,7 @@ var JsonParser = ez.BuildParser(func(g *ez.G) {
 				g.Call("value")
 			})
 			g.Whitespace()
-			g.Repeat(0, 0, func() {
+			g.Repeat(0, 0).Do(func() {
 				g.String(",")
 				g.Whitespace()
 				g.Call("string")
@@ -89,27 +89,25 @@ var JsonParser = ez.BuildParser(func(g *ez.G) {
 	g.Define("string", func() {
 		g.String("\"")
 		g.Capture("string", func() {
-			g.Repeat(0, 0, func() {
-				g.Choice(func() {
-					g.String("\\u")
-					g.Cut()
-					g.Range("0-9", "a-f", "A-F")
-					g.Range("0-9", "a-f", "A-F")
-					g.Range("0-9", "a-f", "A-F")
-					g.Range("0-9", "a-f", "A-F")
-				}, func() {
-					g.String("\\")
-					g.Cut()
-					g.String(
-						"\"", "\\", "/", "b",
-						"f", "n", "r", "t",
-					)
-				}, func() {
-					g.Reject(func() {
-						g.String("\\", "\"")
-					})
-					g.Rune()
+			g.Repeat(0, 0).Choice(func() {
+				g.String("\\u")
+				g.Cut()
+				g.Range("0-9", "a-f", "A-F")
+				g.Range("0-9", "a-f", "A-F")
+				g.Range("0-9", "a-f", "A-F")
+				g.Range("0-9", "a-f", "A-F")
+			}, func() {
+				g.String("\\")
+				g.Cut()
+				g.String(
+					"\"", "\\", "/", "b",
+					"f", "n", "r", "t",
+				)
+			}, func() {
+				g.Reject(func() {
+					g.String("\\", "\"")
 				})
+				g.Rune()
 			})
 		})
 		g.String("\"")
@@ -124,13 +122,13 @@ var JsonParser = ez.BuildParser(func(g *ez.G) {
 				g.String("0")
 			}, func() {
 				g.Range("1-9")
-				g.Repeat(0, 0, func() {
+				g.Repeat(0, 0).Do(func() {
 					g.Range("0-9")
 				})
 			})
 			g.Optional(func() {
 				g.String(".")
-				g.Repeat(0, 0, func() {
+				g.Repeat(0, 0).Do(func() {
 					g.Range("0-9")
 				})
 			})
@@ -138,7 +136,7 @@ var JsonParser = ez.BuildParser(func(g *ez.G) {
 				g.String("e", "E")
 				g.Optional(func() {
 					g.String("+", "-")
-					g.Repeat(0, 0, func() {
+					g.Repeat(0, 0).Do(func() {
 						g.Range("0-9")
 					})
 				})
