@@ -20,8 +20,7 @@ var YamlParser = ez.BuildParser(func(g *ez.G) {
 			})
 			g.Newline()
 		}, func() {
-			g.Range(" ", "\t") // eww
-			// g.Whitespace() // # min length here whoops
+			g.Whitespace().Min(1)
 		})
 	})
 
@@ -80,8 +79,7 @@ var YamlParser = ez.BuildParser(func(g *ez.G) {
 					g.Whitespace()
 					g.Newline()
 					g.Indent()
-					g.Range(" ", "\t")
-					g.Whitespace()
+					g.Whitespace().Min(1)
 					g.Call("indented-value")
 				})
 
@@ -97,8 +95,7 @@ var YamlParser = ez.BuildParser(func(g *ez.G) {
 						g.Whitespace()
 						g.Newline()
 						g.Indent()
-						g.Range(" ", "\t")
-						g.Whitespace()
+						g.Whitespace().Min(1)
 						g.Call("indented-value")
 					})
 				})
@@ -110,7 +107,6 @@ var YamlParser = ez.BuildParser(func(g *ez.G) {
 	g.Define("indented-list", func() {
 		g.Capture("list", func() {
 			g.OffsideBlock(func() {
-				g.Print("new list")
 				g.String("-")
 				g.Choice(func() {
 					g.Whitespace()
@@ -119,8 +115,7 @@ var YamlParser = ez.BuildParser(func(g *ez.G) {
 					g.Whitespace()
 					g.Newline()
 					g.Indent()
-					g.Range(" ", "\t")
-					g.Whitespace()
+					g.Whitespace().Min(1)
 					g.Call("indented-value")
 				})
 				g.Repeat(0, 0).Do(func() {
@@ -134,9 +129,7 @@ var YamlParser = ez.BuildParser(func(g *ez.G) {
 						g.Whitespace()
 						g.Newline()
 						g.Indent()
-						g.Range(" ", "\t")
-						g.Whitespace()
-						g.Print("i-v")
+						g.Whitespace().Min(1)
 						g.Call("indented-value")
 					})
 				})

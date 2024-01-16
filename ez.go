@@ -38,11 +38,12 @@ const (
 	stringAction     = "String"
 	rangeAction      = "Range"
 
+	spaceAction             = "Space"
+	tabAction               = "Tab"
 	whitespaceAction        = "Whitespace"
 	newlineAction           = "Newline"
 	whitespaceNewlineAction = "WhitespaceNewline"
 
-	partialTabAction  = "PartialTab"
 	startOfLineAction = "StartOfLine"
 	endOfLineAction   = "EndOfLine"
 
@@ -84,7 +85,6 @@ func TextMode() *textMode {
 func StringMode() *stringMode {
 	return &stringMode{
 		actionsDisabled: []string{
-			partialTabAction,
 			startOfLineAction,
 			endOfLineAction,
 			indentedBlockAction,
@@ -100,9 +100,10 @@ func BinaryMode() *binaryMode {
 		actionsDisabled: []string{
 			runeAction,
 			stringAction,
+			tabAction,
+			spaceAction,
 			whitespaceAction,
 			newlineAction,
-			partialTabAction,
 			startOfLineAction,
 			endOfLineAction,
 			rangeAction,
@@ -482,12 +483,21 @@ func (g *G) Trace(stub func()) {
 	g.nb.append(a)
 }
 
-func (g *G) Whitespace() {
-	p := g.markPosition(whitespaceAction)
-	if g.shouldExit(p, whitespaceAction) {
+func (g *G) Space() {
+	p := g.markPosition(spaceAction)
+	if g.shouldExit(p, spaceAction) {
 		return
 	}
-	a := &parseAction{kind: whitespaceAction, pos: p}
+	a := &parseAction{kind: spaceAction, pos: p}
+	g.nb.append(a)
+}
+
+func (g *G) Tab() {
+	p := g.markPosition(tabAction)
+	if g.shouldExit(p, tabAction) {
+		return
+	}
+	a := &parseAction{kind: tabAction, pos: p}
 	g.nb.append(a)
 }
 
@@ -507,6 +517,96 @@ func (g *G) WhitespaceNewline() {
 	}
 	a := &parseAction{kind: whitespaceNewlineAction, pos: p}
 	g.nb.append(a)
+}
+
+type WhitespaceOptions struct {
+	g *G
+	a *parseAction
+	p *filePosition
+}
+
+func (wo WhitespaceOptions) Min(min int) {
+	wo.g.whitespaceMin(wo.p, wo.a, min)
+}
+
+func (wo WhitespaceOptions) Max(max int) {
+	wo.g.whitespaceMax(wo.p, wo.a, max)
+}
+
+func (wo WhitespaceOptions) MinMax(min int, max int) {
+	wo.g.whitespaceMax(wo.p, wo.a, max)
+}
+
+func (wo WhitespaceOptions) Width(width int) {
+	wo.g.whitespaceWidth(wo.p, wo.a, width)
+}
+
+func (g *G) Whitespace() WhitespaceOptions {
+	p := g.markPosition(whitespaceAction)
+	wo := WhitespaceOptions{g: g, p: p}
+
+	if g.shouldExit(p, whitespaceAction) {
+		return wo
+	}
+	a := &parseAction{kind: whitespaceAction, pos: p}
+	g.nb.append(a)
+	wo.a = a
+	return wo
+}
+
+func (g *G) whitespaceMin(whitespacePos *filePosition, a *parseAction, min int) {
+	p := g.markPosition(whitespaceAction)
+	if a == nil || g.shouldExit(p, a.kind) {
+		return
+	}
+
+	if p.n-whitespacePos.n != 1 {
+		g.addError(p, "called in wrong position")
+		return
+	}
+
+	a.min = min
+}
+func (g *G) whitespaceMax(whitespacePos *filePosition, a *parseAction, max int) {
+	p := g.markPosition(whitespaceAction)
+	if a == nil || g.shouldExit(p, a.kind) {
+		return
+	}
+
+	if p.n-whitespacePos.n != 1 {
+		g.addError(p, "called in wrong position")
+		return
+	}
+
+	a.max = max
+}
+func (g *G) whitespaceMinMax(whitespacePos *filePosition, a *parseAction, min int, max int) {
+	p := g.markPosition(whitespaceAction)
+	if a == nil || g.shouldExit(p, a.kind) {
+		return
+	}
+
+	if p.n-whitespacePos.n != 1 {
+		g.addError(p, "called in wrong position")
+		return
+	}
+
+	a.min = min
+	a.max = max
+}
+func (g *G) whitespaceWidth(whitespacePos *filePosition, a *parseAction, width int) {
+	p := g.markPosition(whitespaceAction)
+	if a == nil || g.shouldExit(p, a.kind) {
+		return
+	}
+
+	if p.n-whitespacePos.n != 1 {
+		g.addError(p, "called in wrong position")
+		return
+	}
+
+	a.min = width
+	a.max = width
 }
 
 func (g *G) StartOfFile() {
@@ -1731,16 +1831,33 @@ func buildAction(c *grammarConfig, a *parseAction) parseFunc {
 		}
 
 	// case dedentAction
-	// case partialTabAction
+
+	case spaceAction:
+		return func(s *parserState) bool {
+			if atEnd(s) {
+				return false
+			}
+			return acceptString(s, " ")
+		}
+	case tabAction:
+		return func(s *parserState) bool {
+			if atEnd(s) {
+				return false
+			}
+			return acceptString(s, "\t")
+		}
 
 	case whitespaceAction:
+		min_n := a.min
+		max_n := a.max
 		return func(s *parserState) bool {
 			if atEnd(s) {
 				return true
 			}
-			acceptWhitespace(s, 0, 0)
+			acceptWhitespace(s, min_n, max_n)
 			return true
 		}
+
 	case whitespaceNewlineAction:
 		return func(s *parserState) bool {
 			if atEnd(s) {
@@ -1749,6 +1866,7 @@ func buildAction(c *grammarConfig, a *parseAction) parseFunc {
 			acceptWhitespaceOrNewline(s)
 			return true
 		}
+
 	case newlineAction:
 		return func(s *parserState) bool {
 			if atEnd(s) {
@@ -1764,7 +1882,6 @@ func buildAction(c *grammarConfig, a *parseAction) parseFunc {
 			}
 			return acceptNewline(s)
 		}
-
 
 	case startOfLineAction:
 		return func(s *parserState) bool {
