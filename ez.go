@@ -903,19 +903,6 @@ func (g *G) Choice(options ...func()) {
 	g.nb.append(a)
 }
 
-func (g *G) Optional(stub func()) {
-	p := g.markPosition(optionalAction)
-	if g.shouldExit(p, optionalAction) {
-		return
-	} else if stub == nil {
-		g.addError(p, "cant call Optional() with nil")
-		return
-	}
-	r := g.buildStub(optionalAction, stub)
-	a := &parseAction{kind: optionalAction, args: r.args, pos: p}
-	g.nb.append(a)
-}
-
 func (g *G) Lookahead(stub func()) {
 	p := g.markPosition(lookaheadAction)
 	if g.shouldExit(p, lookaheadAction) {
@@ -942,23 +929,23 @@ func (g *G) Reject(stub func()) {
 	g.nb.append(a)
 }
 
-type RepeatOptions struct {
+type RepeatBlock struct {
 	g *G
 	a *parseAction
 	p *filePosition
 }
 
-func (ro RepeatOptions) Do(stub func()) {
+func (ro RepeatBlock) Do(stub func()) {
 	ro.g.repeatSequence(ro.p, ro.a, stub)
 }
 
-func (ro RepeatOptions) Choice(options ...func()) {
+func (ro RepeatBlock) Choice(options ...func()) {
 	ro.g.repeatChoice(ro.p, ro.a, options)
 }
 
-func (g *G) Repeat(min_t int, max_t int) RepeatOptions {
+func (g *G) Repeat(min_t int, max_t int) RepeatBlock {
 	p := g.markPosition(repeatAction)
-	ro := RepeatOptions{g: g, p: p}
+	ro := RepeatBlock{g: g, p: p}
 
 	if g.shouldExit(p, repeatAction) {
 		return ro
@@ -1019,6 +1006,84 @@ func (g *G) repeatChoice(repeatPos *filePosition, a *parseAction, options []func
 	c := &parseAction{kind: choiceAction, args: args, pos: p}
 	a.args = []*parseAction{c}
 }
+
+type OptionalBlock struct {
+	g *G
+	a *parseAction
+	p *filePosition
+}
+
+func (ro OptionalBlock) Do(stub func()) {
+	ro.g.optionalSequence(ro.p, ro.a, stub)
+}
+
+func (ro OptionalBlock) Choice(options ...func()) {
+	ro.g.optionalChoice(ro.p, ro.a, options)
+}
+
+func (g *G) Optional() OptionalBlock {
+	p := g.markPosition(optionalAction)
+	ob := OptionalBlock{g: g, p: p}
+
+	if g.shouldExit(p, optionalAction) {
+		return ob
+	}
+
+	a := &parseAction{kind: optionalAction, pos: p}
+	g.nb.append(a)
+	ob.a = a
+	return ob
+}
+
+func (g *G) optionalSequence(optionalPos *filePosition, a *parseAction, stub func()) {
+	p := g.markPosition(optionalAction)
+	if a == nil || g.shouldExit(p, a.kind) {
+		return
+	}
+
+	if p.n-optionalPos.n != 1 {
+		g.addError(p, "called in wrong position")
+		return
+	}
+
+	if stub == nil {
+		g.addError(p, "cant call Do() with nil")
+		return
+	}
+
+	r := g.buildStub(optionalAction, stub)
+	a.args = r.args
+}
+
+func (g *G) optionalChoice(optionalPos *filePosition, a *parseAction, options []func()) {
+	p := g.markPosition(optionalAction)
+	if a == nil || g.shouldExit(p, a.kind) {
+		return
+	}
+
+	if p.n-optionalPos.n != 1 {
+		g.addError(p, "called in wrong position")
+		return
+	}
+
+	if len(options) == 0 {
+		g.addError(p, "cant call Choice() with nil")
+		return
+	}
+
+	args := make([]*parseAction, len(options))
+	for i, stub := range options {
+		if stub == nil {
+			g.addError(p, "cant call Choice() with nil")
+		} else {
+			r := g.buildStub(choiceAction, stub)
+			args[i] = r.buildSequence(p)
+		}
+	}
+	c := &parseAction{kind: choiceAction, args: args, pos: p}
+	a.args = []*parseAction{c}
+}
+
 func (g *G) Builder(name string, stub any) {
 	p := g.markPosition(builderAction)
 	if g.nb == nil {

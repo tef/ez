@@ -379,11 +379,11 @@ func TestParser(t *testing.T) {
 			})
 		})
 		g.Define("test_optional", func() {
-			g.Optional(func() {
+			g.Optional().Do(func() {
 				g.String("1")
 			})
 			g.String("2")
-			g.Optional(func() {
+			g.Optional().Do(func() {
 				g.String("3")
 			})
 			g.String("4")
@@ -916,7 +916,7 @@ func BenchmarkParser(b *testing.B) {
 			g.Capture("e", func() {
 				g.String("x")
 
-				g.Optional(func() {
+				g.Optional().Do(func() {
 					g.Call("expr")
 				})
 			})
