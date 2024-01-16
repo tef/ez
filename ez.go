@@ -1749,13 +1749,22 @@ func buildAction(c *grammarConfig, a *parseAction) parseFunc {
 			acceptWhitespaceOrNewline(s)
 			return true
 		}
-	case endOfLineAction, newlineAction:
+	case newlineAction:
 		return func(s *parserState) bool {
 			if atEnd(s) {
-				return false
+				return false // eof is not a newline
 			}
 			return acceptNewline(s)
 		}
+
+	case endOfLineAction:
+		return func(s *parserState) bool {
+			if atEnd(s) {
+				return true // eof is eol
+			}
+			return acceptNewline(s)
+		}
+
 
 	case startOfLineAction:
 		return func(s *parserState) bool {
