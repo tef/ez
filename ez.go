@@ -36,7 +36,9 @@ const (
 	runeAction       = "Rune"
 	peekRuneAction   = "PeekRune"
 	stringAction     = "String"
-	rangeAction      = "Range"
+
+	rangeAction       = "Range"
+	invertRangeAction = "InvertRange"
 
 	spaceAction             = "Space"
 	tabAction               = "Tab"
@@ -53,10 +55,12 @@ const (
 	dedentAction        = "Dedent"
 
 	byteAction       = "Byte"
-	byteRangeAction  = "ByteRange"
 	peekByteAction   = "PeekByte"
 	byteListAction   = "Bytes"
 	byteStringAction = "ByteString"
+
+	byteRangeAction       = "ByteRange"
+	invertByteRangeAction = "InvertByteRange"
 )
 
 var ParseError = errors.New("failed to parse")
@@ -840,28 +844,14 @@ func (g *G) Bytes(s ...[]byte) {
 	g.nb.append(a)
 }
 
-type RangeOptions struct {
-	g *G
-	a *parseAction
-	p *filePosition
-}
-
-func (ro RangeOptions) Invert() RangeOptions {
-	return ro.g.invertRange(ro.p, ro.a)
-}
-
-func (g *G) Range(s ...string) RangeOptions {
+func (g *G) Range(s ...string) {
 	p := g.markPosition(rangeAction)
-	ro := RangeOptions{
-		g: g,
-		p: p,
-	}
 	if g.shouldExit(p, rangeAction) {
-		return ro
+		return
 	}
 	if len(s) == 0 {
 		g.addError(p, "missing operand")
-		return ro
+		return
 	}
 
 	args := make([]string, len(s))
@@ -873,23 +863,39 @@ func (g *G) Range(s ...string) RangeOptions {
 		args[i] = v
 	}
 	a := &parseAction{kind: rangeAction, ranges: args, pos: p}
-	ro.a = a
 	g.nb.append(a)
-	return ro
 }
 
-func (g *G) ByteRange(s ...string) RangeOptions {
-	p := g.markPosition(byteRangeAction)
-	ro := RangeOptions{
-		g: g,
-		p: p,
-	}
-	if g.shouldExit(p, byteRangeAction) {
-		return ro
+func (g *G) InvertRange(s ...string) {
+	p := g.markPosition(invertRangeAction)
+	if g.shouldExit(p, invertRangeAction) {
+		return
 	}
 	if len(s) == 0 {
 		g.addError(p, "missing operand")
-		return ro
+		return
+	}
+
+	args := make([]string, len(s))
+	for i, v := range s {
+		r := []rune(v)
+		if !(len(r) == 1 || (len(r) == 3 && r[1] == '-' && r[0] < r[2])) {
+			g.addError(p, "invalid range", v)
+		}
+		args[i] = v
+	}
+	a := &parseAction{kind: invertRangeAction, ranges: args, pos: p, inverted: true}
+	g.nb.append(a)
+}
+
+func (g *G) ByteRange(s ...string) {
+	p := g.markPosition(byteRangeAction)
+	if g.shouldExit(p, byteRangeAction) {
+		return
+	}
+	if len(s) == 0 {
+		g.addError(p, "missing operand")
+		return
 	}
 
 	args := make([]string, len(s))
@@ -897,35 +903,34 @@ func (g *G) ByteRange(s ...string) RangeOptions {
 		r := []byte(v)
 		if !(len(r) == 1 || (len(r) == 3 && r[1] == '-' && r[0] < r[2])) {
 			g.addError(p, "invalid range", v)
-			return ro
 		}
 		args[i] = v
 	}
 	a := &parseAction{kind: byteRangeAction, ranges: args, pos: p}
-	ro.a = a
 	g.nb.append(a)
-	return ro
 }
 
-func (g *G) invertRange(rangePos *filePosition, a *parseAction) RangeOptions {
-	p := g.markPosition(rangeAction)
-	ro := RangeOptions{
-		g: g,
-		p: p,
+func (g *G) InvertByteRange(s ...string) {
+	p := g.markPosition(invertByteRangeAction)
+	if g.shouldExit(p, invertByteRangeAction) {
+		return
 	}
-	if a == nil || g.shouldExit(p, a.kind) {
-		return ro
+	if len(s) == 0 {
+		g.addError(p, "missing operand")
+		return
 	}
 
-	if p.n-rangePos.n != 1 {
-		g.addError(p, "called in wrong position")
-		return ro
+	args := make([]string, len(s))
+	for i, v := range s {
+		r := []byte(v)
+		if !(len(r) == 1 || (len(r) == 3 && r[1] == '-' && r[0] < r[2])) {
+			g.addError(p, "invalid range", v)
+		}
+		args[i] = v
 	}
-	a.inverted = !a.inverted
-	ro.a = a
-	return ro
+	a := &parseAction{kind: invertByteRangeAction, ranges: args, pos: p, inverted: true}
+	g.nb.append(a)
 }
-
 func (g *G) Call(name string) {
 	p := g.markPosition(callAction)
 	if g.shouldExit(p, callAction) {
@@ -1986,7 +1991,7 @@ func buildAction(c *grammarConfig, a *parseAction) parseFunc {
 
 			return false
 		}
-	case rangeAction:
+	case invertRangeAction, rangeAction:
 		inverted := a.inverted
 		runeRanges := make([][]rune, len(a.ranges))
 		for i, v := range a.ranges {
@@ -2022,7 +2027,7 @@ func buildAction(c *grammarConfig, a *parseAction) parseFunc {
 
 			return false
 		}
-	case byteRangeAction:
+	case invertByteRangeAction, byteRangeAction:
 		inverted := a.inverted
 		byteRanges := make([][]byte, len(a.ranges))
 		for i, v := range a.ranges {

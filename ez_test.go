@@ -94,14 +94,14 @@ func TestErrors(t *testing.T) {
 		g.Start = "expr"
 
 		g.Define("expr", func() {
-			ro := g.Range("0-9")
+			w := g.Whitespace()
 			g.String("x")
-			ro.Invert()
+			w.Min(1)
 		})
 	})
 
 	if g.Err == nil {
-		t.Error("bad invert should raise error")
+		t.Error("bad post op should raise error")
 	} else {
 		t.Logf("test grammar raised error:\n %v", g.Err)
 	}
@@ -516,7 +516,7 @@ func TestStringMode(t *testing.T) {
 			g.Range("0", "1-9")
 		})
 		g.Define("test_inverted_range", func() {
-			g.Range("0-9").Invert()
+			g.InvertRange("0-9")
 		})
 		g.Define("test_peek_rune", func() {
 			g.PeekRune(map[rune]func(){
@@ -597,7 +597,7 @@ func TestBinaryMode(t *testing.T) {
 			g.ByteRange("0-9")
 		})
 		g.Define("test_inverted_byterange", func() {
-			g.ByteRange("0-9").Invert()
+			g.InvertByteRange("0-9")
 		})
 		g.Define("test_bytes", func() {
 			g.Bytes([]byte("test"))

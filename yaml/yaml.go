@@ -16,7 +16,7 @@ var YamlParser = ez.BuildParser(func(g *ez.G) {
 			g.Whitespace()
 			g.String("#")
 			g.Repeat(0, 0).Do(func() {
-				g.Range("\n").Invert()
+				g.InvertRange("\n")
 			})
 			g.Newline()
 		}, func() {
@@ -32,7 +32,7 @@ var YamlParser = ez.BuildParser(func(g *ez.G) {
 			g.Whitespace()
 			g.String("#")
 			g.Repeat(0, 0).Do(func() {
-				g.Range("\n").Invert()
+				g.InvertRange("\n")
 			})
 			g.Newline()
 		})
