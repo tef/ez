@@ -111,7 +111,7 @@ func TestErrors(t *testing.T) {
 		g.Start = "expr"
 
 		g.Define("expr", func() {
-			g.Range("9-0")
+			g.Rune().Range("9-0")
 		})
 	})
 
@@ -513,10 +513,10 @@ func TestStringMode(t *testing.T) {
 			g.String("example")
 		})
 		g.Define("test_range", func() {
-			g.Range("0", "1-9")
+			g.Rune().Range("0", "1-9")
 		})
 		g.Define("test_inverted_range", func() {
-			g.InvertRange("0-9")
+			g.Rune().Except("0-9")
 		})
 		g.Define("test_peek_rune", func() {
 			g.PeekRune(map[rune]func(){
@@ -594,10 +594,10 @@ func TestBinaryMode(t *testing.T) {
 			g.Byte()
 		})
 		g.Define("test_byterange", func() {
-			g.ByteRange("0-9")
+			g.Byte().Range("0-9")
 		})
 		g.Define("test_inverted_byterange", func() {
-			g.InvertByteRange("0-9")
+			g.Byte().Except("0-9")
 		})
 		g.Define("test_bytes", func() {
 			g.Bytes([]byte("test"))
@@ -902,6 +902,44 @@ func TestOffsideIndent(t *testing.T) {
 		)
 		if !ok {
 			t.Error("indent test case failed")
+		}
+	}
+}
+
+func TestTabStop(t *testing.T) {
+	var parser *Parser
+	var ok bool
+
+	parser = BuildParser(func(g *G) {
+		g.Start = "expr"
+		g.Mode = TextMode().Tabstop(8)
+		g.Define("expr", func() {
+			g.Whitespace().Width(4)
+			g.Whitespace().Width(4)
+			g.String("hello")
+		})
+
+	})
+
+	if parser.Err() != nil {
+		t.Errorf("error defining grammar:\n%v", parser.Err())
+	} else {
+		ok = parser.testRule("expr",
+			[]string{
+				"\thello",
+				" \thello",
+				"  \thello",
+				"   \thello",
+				"    \thello",
+				"     \thello",
+				"      \thello",
+				"       \thello",
+				"        hello",
+			},
+			[]string{" hello", "\t hello", "        \thello"},
+		)
+		if !ok {
+			t.Error("tab test case failed")
 		}
 	}
 }

@@ -92,10 +92,10 @@ var JsonParser = ez.BuildParser(func(g *ez.G) {
 			g.Repeat(0, 0).Choice(func() {
 				g.String("\\u")
 				g.Cut()
-				g.Range("0-9", "a-f", "A-F")
-				g.Range("0-9", "a-f", "A-F")
-				g.Range("0-9", "a-f", "A-F")
-				g.Range("0-9", "a-f", "A-F")
+				g.Rune().Range("0-9", "a-f", "A-F")
+				g.Rune().Range("0-9", "a-f", "A-F")
+				g.Rune().Range("0-9", "a-f", "A-F")
+				g.Rune().Range("0-9", "a-f", "A-F")
 			}, func() {
 				g.String("\\")
 				g.Cut()
@@ -121,15 +121,15 @@ var JsonParser = ez.BuildParser(func(g *ez.G) {
 			g.Choice(func() {
 				g.String("0")
 			}, func() {
-				g.Range("1-9")
+				g.Rune().Range("1-9")
 				g.Repeat(0, 0).Do(func() {
-					g.Range("0-9")
+					g.Rune().Range("0-9")
 				})
 			})
 			g.Optional().Do(func() {
 				g.String(".")
 				g.Repeat(0, 0).Do(func() {
-					g.Range("0-9")
+					g.Rune().Range("0-9")
 				})
 			})
 			g.Optional().Do(func() {
@@ -137,7 +137,7 @@ var JsonParser = ez.BuildParser(func(g *ez.G) {
 				g.Optional().Do(func() {
 					g.String("+", "-")
 					g.Repeat(0, 0).Do(func() {
-						g.Range("0-9")
+						g.Rune().Range("0-9")
 					})
 				})
 			})
