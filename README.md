@@ -15,11 +15,11 @@ parser := ez.BuildParser(func(g *ez.G) {
         })
 
         g.Define("rule_a", func() {
-                g.Literal("true")
+                g.String("true")
         })
 
         g.Define("rule_b", func() {
-                g.Literal("false")
+                g.String("false")
         })
 })
 
@@ -35,6 +35,7 @@ if err != nil {
 
 `ez` handles things like parsing indented blocks, back references (for matching delimiters),
 data dependent grammars (length prefixed values), and infix operators with precedence.
+
 `ez` also comes with `Print()` and `Trace()` operators to help you debug a grammar, too.
 
 # what makes `ez` different
@@ -44,8 +45,8 @@ data dependent grammars (length prefixed values), and infix operators with prece
 
 ```
 ez.Sequence(func(){
-    ez.Literal("foo")
-    ez.Literal("bar")
+    ez.String("foo")
+    ez.String("bar")
 })
 ```
 
@@ -59,7 +60,7 @@ a new syntax either. There's even error messages with line numbers, too.
 of saying you don't need to define a tokenizer or lexer, and that the parser works
 from top to bottom, from left to right.
 
-it's very much like a parsing evaluation grammar, but there's no backtracking, 
+it's very much like a parsing evaluation grammar, but there's no full on backtracking, 
 or memoization. that's a fancy way of saying that if you have "(a or b) and c", and
 a parses, but c doesn't, the parser will not try parsing b.
 
