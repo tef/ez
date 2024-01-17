@@ -271,6 +271,18 @@ type parseAction struct {
 	message  []any
 }
 
+func (a *parseAction) Walk(stub func(*parseAction)) {
+	if a == nil {
+		return
+	}
+	if a.args != nil {
+		for _, c := range(a.args) {
+			c.Walk(stub)
+		}
+	}
+	stub(a)
+}
+
 // Builder
 
 type nodeBuilder struct {
@@ -321,9 +333,6 @@ type G struct {
 
 	Mode       GrammarMode
 	configmode GrammarMode
-
-	callPos    map[string][]*filePosition
-	capturePos map[string][]*filePosition
 
 	builderPos map[string]*filePosition
 	rulePos    map[string]*filePosition
@@ -992,7 +1001,6 @@ func (g *G) Call(name string) {
 	if g.shouldExit(p, callAction) {
 		return
 	}
-	g.callPos[name] = append(g.callPos[name], p)
 	a := &parseAction{kind: callAction, name: name, pos: p}
 	g.nb.append(a)
 }
@@ -1021,8 +1029,6 @@ func (g *G) Capture(name string, stub func()) {
 	}
 
 	r := g.buildStub(sequenceAction, stub)
-
-	g.capturePos[name] = append(g.capturePos[name], p)
 
 	a := &parseAction{kind: captureAction, name: name, args: r.args, pos: p}
 	g.nb.append(a)
@@ -1344,10 +1350,8 @@ func buildGrammar(pos *filePosition, mode GrammarMode, stub func(*G)) *Grammar {
 		nb:         &nodeBuilder{kind: grammarAction},
 		LogFunc:    Printf,
 		Mode:       mode,
-		callPos:    make(map[string][]*filePosition, 0),
-		capturePos: make(map[string][]*filePosition, 0),
-		builderPos: make(map[string]*filePosition, 0),
 		rulePos:    make(map[string]*filePosition, 0),
+		builderPos: make(map[string]*filePosition, 0),
 	}
 
 	if stub == nil {
@@ -1356,6 +1360,21 @@ func buildGrammar(pos *filePosition, mode GrammarMode, stub func(*G)) *Grammar {
 
 	stub(bg)
 
+	capturePos := make(map[string][]*filePosition, 0)
+	callPos := make(map[string][]*filePosition, 0)
+
+	for _, rule := range g.rules {
+		rule.Walk(func(a *parseAction) {
+			switch a.kind {
+			case captureAction:
+				capturePos[a.name] = append(capturePos[a.name], a.pos)
+
+			case callAction:
+				callPos[a.name] = append(callPos[a.name], a.pos)
+			}
+		})
+	}
+
 	if bg.Start == "" && len(g.rules) == 1 {
 		for k := range g.rules {
 			bg.Start = k
@@ -1363,7 +1382,7 @@ func buildGrammar(pos *filePosition, mode GrammarMode, stub func(*G)) *Grammar {
 		}
 	}
 
-	for name, pos := range bg.callPos {
+	for name, pos := range callPos {
 		if _, ok := g.rules[name]; !ok {
 			for _, p := range pos {
 				bg.addErrorf(p, "missing rule %q", name)
@@ -1372,21 +1391,21 @@ func buildGrammar(pos *filePosition, mode GrammarMode, stub func(*G)) *Grammar {
 	}
 
 	for name := range g.rules {
-		if name != bg.Start && bg.callPos[name] == nil {
+		if name != bg.Start && callPos[name] == nil {
 			p := bg.rulePos[name]
 			bg.addErrorf(p, "unused rule %q", name)
 		}
 	}
 
 	for name, _ := range g.builders {
-		if _, ok := bg.capturePos[name]; !ok {
+		if _, ok := capturePos[name]; !ok {
 			p := bg.builderPos[name]
 			bg.addErrorf(p, "missing capture %q for builder", name)
 		}
 	}
 
 	if len(g.builders) > 0 {
-		for name, pos := range bg.capturePos {
+		for name, pos := range capturePos {
 			if _, ok := bg.builderPos[name]; !ok {
 				for _, p := range pos {
 					bg.addErrorf(p, "missing builder %q for capture", name)
