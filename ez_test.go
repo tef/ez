@@ -475,6 +475,7 @@ func TestStringMode(t *testing.T) {
 		g.Start = "expr"
 		g.Mode = StringMode()
 		g.Define("expr", func() {
+			g.StartOfFile()
 			g.WhitespaceNewline()
 			g.String("example")
 			g.WhitespaceNewline()
@@ -915,7 +916,7 @@ func TestTabStop(t *testing.T) {
 		g.Mode = TextMode().Tabstop(8)
 		g.Define("expr", func() {
 			g.Whitespace().Width(4)
-			g.Whitespace().Width(4)
+			g.Whitespace().Width(5)
 			g.String("hello")
 		})
 
@@ -926,17 +927,21 @@ func TestTabStop(t *testing.T) {
 	} else {
 		ok = parser.testRule("expr",
 			[]string{
-				"\thello",
-				" \thello",
-				"  \thello",
-				"   \thello",
-				"    \thello",
-				"     \thello",
-				"      \thello",
-				"       \thello",
-				"        hello",
+				"\t hello",
+				" \t hello",
+				"  \t hello",
+				"   \t hello",
+				"    \t hello",
+				"     \t hello",
+				"      \t hello",
+				"       \t hello",
+				"         hello",
 			},
-			[]string{" hello", "\t hello", "        \thello"},
+			[]string{
+				" hello",
+				"\thello",
+				"        \thello",
+			},
 		)
 		if !ok {
 			t.Error("tab test case failed")
