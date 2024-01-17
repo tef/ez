@@ -269,6 +269,8 @@ type parseAction struct {
 	max      int
 	inverted bool
 	message  []any
+
+	zeroWidth bool
 }
 
 func (a *parseAction) Walk(stub func(*parseAction)) {
@@ -276,11 +278,73 @@ func (a *parseAction) Walk(stub func(*parseAction)) {
 		return
 	}
 	if a.args != nil {
-		for _, c := range(a.args) {
+		for _, c := range a.args {
 			c.Walk(stub)
 		}
 	}
 	stub(a)
+}
+
+func (a *parseAction) setZeroWidth() {
+	if a == nil {
+		return
+	}
+	allZw := true
+	anyZw := true
+	if a.args != nil {
+		for _, c := range a.args {
+			c.setZeroWidth()
+			allZw = allZw && c.zeroWidth
+			anyZw = anyZw || c.zeroWidth
+		}
+	}
+
+	switch a.kind {
+	case printAction, traceAction:
+		a.zeroWidth = true
+
+	case doAction, sequenceAction:
+		a.zeroWidth = allZw
+	case choiceAction:
+		a.zeroWidth = anyZw
+	case cutAction:
+		a.zeroWidth = true
+	case repeatAction:
+		a.zeroWidth = a.min == 0 || allZw
+	case lookaheadAction:
+		a.zeroWidth = true
+	case rejectAction:
+		a.zeroWidth = true
+	case captureAction:
+		a.zeroWidth = allZw
+	case optionalAction:
+		a.zeroWidth = true
+	case whitespaceAction:
+		a.zeroWidth = a.min == 0
+	case whitespaceNewlineAction:
+		a.zeroWidth = true
+	case startOfFileAction:
+		a.zeroWidth = true
+	case endOfFileAction:
+		a.zeroWidth = true
+	case peekRuneAction:
+		a.zeroWidth = true
+	case peekByteAction:
+		a.zeroWidth = true
+	case peekStringAction:
+		a.zeroWidth = true
+	case indentedBlockAction:
+		a.zeroWidth = true
+	case offsideBlockAction:
+		a.zeroWidth = true
+	case indentAction:
+		a.zeroWidth = true
+	case dedentAction:
+		a.zeroWidth = true
+
+	default:
+		a.zeroWidth = false
+	}
 }
 
 // Builder
@@ -1373,6 +1437,7 @@ func buildGrammar(pos *filePosition, mode GrammarMode, stub func(*G)) *Grammar {
 				callPos[a.name] = append(callPos[a.name], a.pos)
 			}
 		})
+		rule.setZeroWidth()
 	}
 
 	if bg.Start == "" && len(g.rules) == 1 {
