@@ -1160,6 +1160,36 @@ func (g *G) Reject(stub func()) {
 	g.nb.append(a)
 }
 
+type RepeatOptions struct {
+	g *G
+	a *parseAction
+	p *filePosition
+}
+
+func (ro RepeatOptions) Min(min int) RepeatBlock {
+	return ro.g.repeatMin(ro.p, ro.a, min)
+}
+
+func (ro RepeatOptions) Max(max int) RepeatBlock {
+	return ro.g.repeatMax(ro.p, ro.a, max)
+}
+
+func (ro RepeatOptions) MinMax(min int, max int) RepeatBlock {
+	return ro.g.repeatMinMax(ro.p, ro.a, min, max)
+}
+
+func (ro RepeatOptions) N(n int) RepeatBlock {
+	return ro.g.repeatN(ro.p, ro.a, n)
+}
+
+func (ro RepeatOptions) Do(stub func()) {
+	ro.g.repeatSequence(ro.p, ro.a, stub)
+}
+
+func (ro RepeatOptions) Choice(options ...func()) {
+	ro.g.repeatChoice(ro.p, ro.a, options)
+}
+
 type RepeatBlock struct {
 	g *G
 	a *parseAction
@@ -1174,19 +1204,81 @@ func (ro RepeatBlock) Choice(options ...func()) {
 	ro.g.repeatChoice(ro.p, ro.a, options)
 }
 
-func (g *G) Repeat(min_t int, max_t int) RepeatBlock {
+func (g *G) Repeat() RepeatOptions {
 	p := g.markPosition(repeatAction)
-	ro := RepeatBlock{g: g, p: p}
+	ro := RepeatOptions{g: g, p: p}
 
 	if g.shouldExit(p, repeatAction) {
 		return ro
 	}
 
-	a := &parseAction{kind: repeatAction, min: min_t, max: max_t, pos: p}
+	a := &parseAction{kind: repeatAction, pos: p}
 	g.nb.append(a)
 	ro.a = a
 	return ro
 
+}
+
+func (g *G) repeatMin(repeatPos *filePosition, a *parseAction, min int) RepeatBlock {
+	p := g.markPosition(repeatAction)
+	rb := RepeatBlock{g: g, a: a, p: p}
+	if a == nil || g.shouldExit(p, a.kind) {
+		return rb
+	}
+
+	if p.n-repeatPos.n != 1 {
+		g.addError(p, "called in wrong position")
+		return rb
+	}
+	a.min = min
+	return rb
+}
+
+func (g *G) repeatMax(repeatPos *filePosition, a *parseAction, max int) RepeatBlock {
+	p := g.markPosition(repeatAction)
+	rb := RepeatBlock{g: g, a: a, p: p}
+	if a == nil || g.shouldExit(p, a.kind) {
+		return rb
+	}
+
+	if p.n-repeatPos.n != 1 {
+		g.addError(p, "called in wrong position")
+		return rb
+	}
+	a.max = max
+	return rb
+}
+
+func (g *G) repeatMinMax(repeatPos *filePosition, a *parseAction, min int, max int) RepeatBlock {
+	p := g.markPosition(repeatAction)
+	rb := RepeatBlock{g: g, a: a, p: p}
+	if a == nil || g.shouldExit(p, a.kind) {
+		return rb
+	}
+
+	if p.n-repeatPos.n != 1 {
+		g.addError(p, "called in wrong position")
+		return rb
+	}
+	a.min = min
+	a.max = max
+	return rb
+}
+
+func (g *G) repeatN(repeatPos *filePosition, a *parseAction, n int) RepeatBlock {
+	p := g.markPosition(repeatAction)
+	rb := RepeatBlock{g: g, a: a, p: p}
+	if a == nil || g.shouldExit(p, a.kind) {
+		return rb
+	}
+
+	if p.n-repeatPos.n != 1 {
+		g.addError(p, "called in wrong position")
+		return rb
+	}
+	a.min = n
+	a.max = n
+	return rb
 }
 
 func (g *G) repeatSequence(repeatPos *filePosition, a *parseAction, stub func()) {

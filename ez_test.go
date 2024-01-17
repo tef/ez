@@ -389,7 +389,7 @@ func TestParser(t *testing.T) {
 			g.String("4")
 		})
 		g.Define("test_repeat", func() {
-			g.Repeat(0, 0).Do(func() {
+			g.Repeat().Do(func() {
 				g.String("a")
 			})
 		})
@@ -832,7 +832,7 @@ func TestBlockIndent(t *testing.T) {
 				g.String("block:")
 				g.Newline()
 				g.IndentedBlock(func() {
-					g.Repeat(0, 0).Do(func() {
+					g.Repeat().Do(func() {
 						g.Indent()
 						g.Call("expr")
 					})
@@ -881,7 +881,7 @@ func TestOffsideIndent(t *testing.T) {
 				g.OffsideBlock(func() {
 					g.Whitespace()
 					g.Newline()
-					g.Repeat(0, 0).Do(func() {
+					g.Repeat().Do(func() {
 						g.Indent()
 						g.Call("expr")
 					})
