@@ -344,13 +344,12 @@ func (a *parseAction) setTerminal() {
 	case indentAction, dedentAction:
 		a.terminal = false
 
-	case byteAction, byteListAction,byteStringAction:
+	case byteAction, byteListAction, byteStringAction:
 		a.terminal = true
 	case byteRangeAction, byteExceptAction:
 		a.terminal = true
 	case matchByteAction:
 		a.terminal = true
-
 
 	default:
 		a.terminal = false
@@ -425,7 +424,7 @@ func (a *parseAction) setZeroWidth(rules map[string]bool) bool {
 	case indentAction, dedentAction:
 		a.zeroWidth = true // an indented block or an offsideBlock can be zw
 
-	case byteAction, byteListAction,byteStringAction:
+	case byteAction, byteListAction, byteStringAction:
 		a.zeroWidth = false
 	case byteRangeAction, byteExceptAction:
 		a.zeroWidth = false
@@ -994,7 +993,7 @@ func (g *G) Bytes(s ...[]byte) {
 		return
 	}
 
-	for _, v := range(s) {
+	for _, v := range s {
 		if len(v) == 0 {
 			g.addErrorf(p, "Bytes(%q) is empty", v)
 		}
