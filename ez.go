@@ -32,11 +32,11 @@ const (
 	startOfFileAction = "StartOfFile"
 	endOfFileAction   = "EndOfFile"
 
-	runeAction       = "Rune"
-	runeRangeAction  = "Rune.Range"
-	runeExceptAction = "Rune.Except"
-	stringAction     = "String"
-	matchRuneAction  = "MatchRune"
+	runeAction        = "Rune"
+	runeRangeAction   = "Rune.Range"
+	runeExceptAction  = "Rune.Except"
+	stringAction      = "String"
+	matchRuneAction   = "MatchRune"
 	matchStringAction = "MatchString"
 
 	spaceAction             = "Space"
@@ -57,7 +57,7 @@ const (
 	byteRangeAction  = "Byte.Range"
 	byteExceptAction = "Byte.Except"
 
-	matchByteAction   = "MatchByte"
+	matchByteAction  = "MatchByte"
 	byteListAction   = "Bytes"
 	byteStringAction = "ByteString"
 )
@@ -292,22 +292,26 @@ func (a *parseAction) setTerminal() {
 	}
 
 	allTerminal := true
-	anyTerminal := true
 	if a.args != nil {
 		for _, c := range a.args {
 			c.setTerminal()
 			allTerminal = allTerminal && c.terminal
-			anyTerminal = anyTerminal || c.terminal
 		}
 	}
 
 	switch a.kind {
+	case traceAction:
+		a.terminal = allTerminal
+	case printAction:
+		a.terminal = true
 	case doAction, sequenceAction:
 		a.terminal = allTerminal
 	case choiceAction:
-		a.terminal = anyTerminal
+		a.terminal = allTerminal
 	case cutAction:
 		a.terminal = true
+	case optionalAction:
+		a.terminal = allTerminal
 	case repeatAction:
 		a.terminal = allTerminal
 	case lookaheadAction:
@@ -316,19 +320,28 @@ func (a *parseAction) setTerminal() {
 		a.terminal = allTerminal
 	case captureAction:
 		a.terminal = allTerminal
-	case optionalAction:
-		a.terminal = allTerminal
+
+	case runeAction, runeRangeAction, runeExceptAction:
+		a.terminal = true
+	case stringAction:
+		a.terminal = true
+	case matchRuneAction, matchStringAction:
+		a.terminal = true
+
 	case whitespaceAction:
 		a.terminal = true
 	case whitespaceNewlineAction:
 		a.terminal = true
 
-	default:
+	case callAction:
 		a.terminal = false
+
+	default:
+		a.terminal = true
 	}
 }
 
-func (a *parseAction) setZeroWidth() bool {
+func (a *parseAction) setZeroWidth(rules map[string]bool) bool {
 	if a == nil {
 		return false
 	}
@@ -339,13 +352,16 @@ func (a *parseAction) setZeroWidth() bool {
 	anyZw := false
 	if a.args != nil {
 		for _, c := range a.args {
-			c.setZeroWidth()
+			c.setZeroWidth(rules)
 			allZw = allZw && c.zeroWidth
 			anyZw = anyZw || c.zeroWidth
 		}
 	}
 
 	switch a.kind {
+
+	case callAction:
+		a.zeroWidth = rules[a.name]
 	case printAction:
 		a.zeroWidth = true
 	case traceAction:
@@ -1651,11 +1667,16 @@ func buildGrammar(pos *filePosition, mode GrammarMode, stub func(*G)) *Grammar {
 	// retesting, but that sounds like a lot of work
 
 	n := 1
+
+	zwMap := make(map[string]bool, len(g.rules))
 	for n > 0 {
 		n = 0
-		for _, rule := range g.rules {
-			if rule.setZeroWidth() {
+		for name, rule := range g.rules {
+			if rule.setZeroWidth(zwMap) {
 				n++
+			}
+			if rule != nil {
+				zwMap[name] = rule.zeroWidth
 			}
 		}
 	}
