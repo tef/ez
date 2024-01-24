@@ -32,6 +32,9 @@ const (
 	startOfFileAction = "StartOfFile"
 	endOfFileAction   = "EndOfFile"
 
+	startOfLineAction = "StartOfLine"
+	endOfLineAction   = "EndOfLine"
+
 	runeAction        = "Rune"
 	runeRangeAction   = "Rune.Range"
 	runeExceptAction  = "Rune.Except"
@@ -44,9 +47,6 @@ const (
 	whitespaceAction        = "Whitespace"
 	newlineAction           = "Newline"
 	whitespaceNewlineAction = "WhitespaceNewline"
-
-	startOfLineAction = "StartOfLine"
-	endOfLineAction   = "EndOfLine"
 
 	indentedBlockAction = "IndentedBlock"
 	offsideBlockAction  = "OffsideBlock"
@@ -287,9 +287,6 @@ func (a *parseAction) Walk(stub func(*parseAction)) {
 }
 
 func (a *parseAction) setTerminal() {
-	if a == nil {
-		return
-	}
 
 	allTerminal := true
 	if a.args != nil {
@@ -304,6 +301,10 @@ func (a *parseAction) setTerminal() {
 		a.terminal = allTerminal
 	case printAction:
 		a.terminal = true
+
+	case callAction:
+		a.terminal = false
+
 	case doAction, sequenceAction:
 		a.terminal = allTerminal
 	case choiceAction:
@@ -321,31 +322,42 @@ func (a *parseAction) setTerminal() {
 	case captureAction:
 		a.terminal = allTerminal
 
-	case runeAction, runeRangeAction, runeExceptAction:
+	case startOfFileAction, endOfFileAction:
 		a.terminal = true
-	case stringAction:
+	case startOfLineAction, endOfLineAction:
+		a.terminal = true
+
+	case runeAction, stringAction:
+		a.terminal = true
+	case runeRangeAction, runeExceptAction:
 		a.terminal = true
 	case matchRuneAction, matchStringAction:
 		a.terminal = true
 
-	case whitespaceAction:
+	case spaceAction, tabAction:
 		a.terminal = true
-	case whitespaceNewlineAction:
+	case whitespaceAction, newlineAction, whitespaceNewlineAction:
 		a.terminal = true
 
-	case callAction:
+	case indentedBlockAction, offsideBlockAction:
+		a.terminal = false
+	case indentAction, dedentAction:
 		a.terminal = false
 
-	default:
+	case byteAction, byteListAction,byteStringAction:
 		a.terminal = true
+	case byteRangeAction, byteExceptAction:
+		a.terminal = true
+	case matchByteAction:
+		a.terminal = true
+
+
+	default:
+		a.terminal = false
 	}
 }
 
 func (a *parseAction) setZeroWidth(rules map[string]bool) bool {
-	if a == nil {
-		return false
-	}
-
 	old := a.zeroWidth
 
 	allZw := true
@@ -360,12 +372,13 @@ func (a *parseAction) setZeroWidth(rules map[string]bool) bool {
 
 	switch a.kind {
 
-	case callAction:
-		a.zeroWidth = rules[a.name]
 	case printAction:
 		a.zeroWidth = true
 	case traceAction:
 		a.zeroWidth = allZw
+
+	case callAction:
+		a.zeroWidth = rules[a.name]
 
 	case doAction, sequenceAction:
 		a.zeroWidth = allZw
@@ -383,28 +396,41 @@ func (a *parseAction) setZeroWidth(rules map[string]bool) bool {
 		a.zeroWidth = allZw
 	case optionalAction:
 		a.zeroWidth = true
+
+	case startOfFileAction, endOfFileAction:
+		a.zeroWidth = true
+	case startOfLineAction:
+		a.zeroWidth = true
+	case endOfLineAction:
+		a.zeroWidth = false
+
+	case runeAction, stringAction:
+		a.zeroWidth = false
+	case runeRangeAction, runeExceptAction:
+		a.zeroWidth = false
+	case matchRuneAction, matchStringAction:
+		a.zeroWidth = anyZw
+
+	case spaceAction, tabAction:
+		a.zeroWidth = false
 	case whitespaceAction:
 		a.zeroWidth = a.min == 0
+	case newlineAction:
+		a.zeroWidth = false
 	case whitespaceNewlineAction:
 		a.zeroWidth = true
-	case startOfFileAction:
-		a.zeroWidth = true
-	case endOfFileAction:
-		a.zeroWidth = true
-	case matchRuneAction:
-		a.zeroWidth = anyZw
+
+	case indentedBlockAction, offsideBlockAction:
+		a.zeroWidth = allZw
+	case indentAction, dedentAction:
+		a.zeroWidth = true // an indented block or an offsideBlock can be zw
+
+	case byteAction, byteListAction,byteStringAction:
+		a.zeroWidth = false
+	case byteRangeAction, byteExceptAction:
+		a.zeroWidth = false
 	case matchByteAction:
-		a.zeroWidth = anyZw
-	case matchStringAction:
-		a.zeroWidth = anyZw
-	case indentedBlockAction:
-		a.zeroWidth = true
-	case offsideBlockAction:
-		a.zeroWidth = true
-	case indentAction:
-		a.zeroWidth = true
-	case dedentAction:
-		a.zeroWidth = true
+		a.zeroWidth = false
 
 	default:
 		a.zeroWidth = false
@@ -843,7 +869,10 @@ func (g *G) MatchString(stubs map[string]func()) {
 	for c, stub := range stubs {
 		if !utf8.ValidString(c) {
 			g.addErrorf(p, "MatchString(%q) contains invalid UTF-8", c)
+		} else if c == "" {
+			g.addErrorf(p, "MatchString(%q) is empty string", c)
 		}
+
 		for _, b := range g.grammarConfig().stringsReserved {
 			if strings.Index(c, b) > -1 {
 				g.addErrorf(p, "MatchString(%q) contains reserved string %q", c, b)
@@ -882,6 +911,7 @@ func (g *G) MatchRune(stubs map[rune]func()) {
 	a := &parseAction{kind: matchRuneAction, runeSwitch: args, pos: p}
 	g.nb.append(a)
 }
+
 func (g *G) String(s ...string) {
 	p := g.markPosition(stringAction)
 	if g.shouldExit(p, stringAction) {
@@ -894,6 +924,8 @@ func (g *G) String(s ...string) {
 	for _, v := range s {
 		if !utf8.ValidString(v) {
 			g.addErrorf(p, "String(%q) contains invalid UTF-8", v)
+		} else if v == "" {
+			g.addErrorf(p, "String(%q) is empty string", v)
 		}
 		for _, b := range g.grammarConfig().stringsReserved {
 			if strings.Index(v, b) > -1 {
@@ -941,6 +973,9 @@ func (g *G) ByteString(s ...string) {
 
 	b := make([][]byte, len(s))
 	for i, v := range s {
+		if v == "" {
+			g.addErrorf(p, "ByteString(%q) is empty string", v)
+		}
 		b[i] = []byte(v)
 
 	}
@@ -957,6 +992,13 @@ func (g *G) Bytes(s ...[]byte) {
 	if len(s) == 0 {
 		g.addError(p, "missing operand")
 		return
+	}
+
+	for _, v := range(s) {
+		if len(v) == 0 {
+			g.addErrorf(p, "Bytes(%q) is empty", v)
+		}
+
 	}
 
 	a := &parseAction{kind: byteListAction, bytes: s, pos: p}
@@ -1657,7 +1699,9 @@ func buildGrammar(pos *filePosition, mode GrammarMode, stub func(*G)) *Grammar {
 	// mark all terminal rules
 
 	for _, rule := range g.rules {
-		rule.setTerminal()
+		if rule != nil {
+			rule.setTerminal()
+		}
 	}
 
 	// mark all zero width rules, using a closure algorithm
@@ -1672,14 +1716,17 @@ func buildGrammar(pos *filePosition, mode GrammarMode, stub func(*G)) *Grammar {
 	for n > 0 {
 		n = 0
 		for name, rule := range g.rules {
-			if rule.setZeroWidth(zwMap) {
-				n++
-			}
 			if rule != nil {
+				if rule.setZeroWidth(zwMap) {
+					n++
+				}
 				zwMap[name] = rule.zeroWidth
 			}
 		}
 	}
+
+	// check nullable rules have a '?' at the end of name
+
 	for name, rule := range g.rules {
 		nullable := name[len(name)-1] == '?'
 		if rule != nil {
