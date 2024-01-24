@@ -8,7 +8,7 @@ var YamlParser = ez.BuildParser(func(g *ez.G) {
 	g.Mode = ez.TextMode()
 	g.Start = "document"
 
-	g.Define("whitespace", func() {
+	g.Define("whitespace?", func() {
 		g.Repeat().Choice(func() {
 			g.Whitespace()
 			g.Newline()
@@ -24,7 +24,7 @@ var YamlParser = ez.BuildParser(func(g *ez.G) {
 		})
 	})
 
-	g.Define("newline", func() {
+	g.Define("newline?", func() {
 		g.Repeat().Choice(func() {
 			g.Whitespace()
 			g.Newline()
@@ -39,20 +39,20 @@ var YamlParser = ez.BuildParser(func(g *ez.G) {
 	})
 
 	g.Define("document", func() {
-		g.Call("newline")
+		g.Call("newline?")
 		g.Choice(func() {
 			g.Call("indented-object")
 		}, func() {
 			g.Call("indented-list")
 		}, func() {
-			g.Call("whitespace")
+			g.Call("whitespace?")
 			g.Call("list")
 		}, func() {
-			g.Call("whitespace")
+			g.Call("whitespace?")
 			g.Call("object")
 		})
 		g.Repeat().Do(func() {
-			g.Call("newline")
+			g.Call("newline?")
 		})
 	})
 
