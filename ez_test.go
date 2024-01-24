@@ -389,7 +389,7 @@ func TestParser(t *testing.T) {
 			g.String("4")
 		})
 		g.Define("test_repeat", func() {
-			g.Repeat().Do(func() {
+			g.Repeat().Min(1).Do(func() {
 				g.String("a")
 			})
 		})
@@ -445,8 +445,8 @@ func TestParser(t *testing.T) {
 			t.Error("optional test case failed")
 		}
 		ok = parser.testRule("test_repeat",
-			[]string{"", "a", "aa", "aaaa"},
-			[]string{"ab", "ba", "aba"},
+			[]string{"a", "aa", "aaaa"},
+			[]string{"", "ab", "ba", "aba"},
 		)
 		if !ok {
 			t.Error("repeat test case failed")
@@ -503,7 +503,7 @@ func TestStringMode(t *testing.T) {
 			g.Call("test_string")
 			g.Call("test_range")
 			g.Call("test_inverted_range")
-			g.Call("test_peek_rune")
+			g.Call("test_match_rune")
 		})
 
 		g.Define("test_rune", func() {
@@ -519,8 +519,8 @@ func TestStringMode(t *testing.T) {
 		g.Define("test_inverted_range", func() {
 			g.Rune().Except("0-9")
 		})
-		g.Define("test_peek_rune", func() {
-			g.PeekRune(map[rune]func(){
+		g.Define("test_match_rune", func() {
+			g.MatchRune(map[rune]func(){
 				'1': func() {
 					g.String("1")
 				},
@@ -565,12 +565,12 @@ func TestStringMode(t *testing.T) {
 		if !ok {
 			t.Error("rune test case failed")
 		}
-		ok = parser.testRule("test_peek_rune",
+		ok = parser.testRule("test_match_rune",
 			[]string{"1", "22", "333"},
 			[]string{"111", "2", "33"},
 		)
 		if !ok {
-			t.Error("peek rune test case failed")
+			t.Error("match rune test case failed")
 		}
 
 	}
@@ -588,7 +588,7 @@ func TestBinaryMode(t *testing.T) {
 			g.Call("test_inverted_byterange")
 			g.Call("test_bytestring")
 			g.Call("test_bytes")
-			g.Call("test_peek_byte")
+			g.Call("test_match_byte")
 		})
 
 		g.Define("test_byte", func() {
@@ -606,8 +606,8 @@ func TestBinaryMode(t *testing.T) {
 		g.Define("test_bytestring", func() {
 			g.ByteString("test")
 		})
-		g.Define("test_peek_byte", func() {
-			g.PeekByte(map[byte]func(){
+		g.Define("test_match_byte", func() {
+			g.MatchByte(map[byte]func(){
 				'1': func() {
 					g.ByteString("1")
 				},
@@ -658,12 +658,12 @@ func TestBinaryMode(t *testing.T) {
 		if !ok {
 			t.Error("bytestring test case failed")
 		}
-		ok = parser.testRule("test_peek_byte",
+		ok = parser.testRule("test_match_byte",
 			[]string{"1", "22", "333"},
 			[]string{"111", "2", "33"},
 		)
 		if !ok {
-			t.Error("peek byte test case failed")
+			t.Error("match byte test case failed")
 		}
 	}
 
