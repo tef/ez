@@ -271,6 +271,7 @@ type parseAction struct {
 	message  []any
 
 	zeroWidth bool
+	terminal  bool
 }
 
 func (a *parseAction) Walk(stub func(*parseAction)) {
@@ -283,6 +284,48 @@ func (a *parseAction) Walk(stub func(*parseAction)) {
 		}
 	}
 	stub(a)
+}
+
+func (a *parseAction) setTerminal() {
+	if a == nil {
+		return
+	}
+
+	allTerminal := true
+	anyTerminal := true
+	if a.args != nil {
+		for _, c := range a.args {
+			c.setTerminal()
+			allTerminal = allTerminal && c.terminal
+			anyTerminal = anyTerminal || c.terminal
+		}
+	}
+
+	switch a.kind {
+	case doAction, sequenceAction:
+		a.terminal = allTerminal
+	case choiceAction:
+		a.terminal = anyTerminal
+	case cutAction:
+		a.terminal = true
+	case repeatAction:
+		a.terminal = allTerminal
+	case lookaheadAction:
+		a.terminal = allTerminal
+	case rejectAction:
+		a.terminal = allTerminal
+	case captureAction:
+		a.terminal = allTerminal
+	case optionalAction:
+		a.terminal = allTerminal
+	case whitespaceAction:
+		a.terminal = true
+	case whitespaceNewlineAction:
+		a.terminal = true
+
+	default:
+		a.terminal = false
+	}
 }
 
 func (a *parseAction) setZeroWidth() bool {
@@ -1593,8 +1636,17 @@ func buildGrammar(pos *filePosition, mode GrammarMode, stub func(*G)) *Grammar {
 		}
 	}
 
+	// mark all terminal rules
+
+	for _, rule := range g.rules {
+		rule.setTerminal()
+	}
+
 	// mark all zero width rules, using a closure algorithm
 	// repeat until no new rules marked
+
+	// in theory we could do a SCC analysis and avoid
+	// retesting, but that sounds like a lot of work
 
 	n := 1
 	for n > 0 {
