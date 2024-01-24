@@ -285,10 +285,13 @@ func (a *parseAction) Walk(stub func(*parseAction)) {
 	stub(a)
 }
 
-func (a *parseAction) setZeroWidth() {
+func (a *parseAction) setZeroWidth() bool {
 	if a == nil {
-		return
+		return false
 	}
+
+	old := a.zeroWidth
+
 	allZw := true
 	anyZw := true
 	if a.args != nil {
@@ -345,6 +348,8 @@ func (a *parseAction) setZeroWidth() {
 	default:
 		a.zeroWidth = false
 	}
+
+	return old != a.zeroWidth
 }
 
 // Builder
@@ -1516,6 +1521,25 @@ func buildGrammar(pos *filePosition, mode GrammarMode, stub func(*G)) *Grammar {
 
 	stub(bg)
 
+	// if only one rule, set it as the starting rule
+
+	if bg.Start == "" && len(g.rules) == 1 {
+		for k := range g.rules {
+			bg.Start = k
+			break
+		}
+	}
+
+	// grammars must have a start rule
+
+	if bg.Start == "" {
+		bg.addError(g.pos, "starting rule undefined")
+	} else if _, ok := g.rules[bg.Start]; !ok {
+		bg.addErrorf(g.pos, "starting rule %q is missing", bg.Start)
+	}
+
+	// mark down all g.Call() and g.Capture()
+
 	capturePos := make(map[string][]*filePosition, 0)
 	callPos := make(map[string][]*filePosition, 0)
 
@@ -1529,15 +1553,9 @@ func buildGrammar(pos *filePosition, mode GrammarMode, stub func(*G)) *Grammar {
 				callPos[a.name] = append(callPos[a.name], a.pos)
 			}
 		})
-		rule.setZeroWidth()
 	}
 
-	if bg.Start == "" && len(g.rules) == 1 {
-		for k := range g.rules {
-			bg.Start = k
-			break
-		}
-	}
+	// ensure each g.Call() has a rule
 
 	for name, pos := range callPos {
 		if _, ok := g.rules[name]; !ok {
@@ -1547,6 +1565,8 @@ func buildGrammar(pos *filePosition, mode GrammarMode, stub func(*G)) *Grammar {
 		}
 	}
 
+	// ensure each rule gets called at least once
+
 	for name := range g.rules {
 		if name != bg.Start && callPos[name] == nil {
 			p := bg.rulePos[name]
@@ -1554,14 +1574,16 @@ func buildGrammar(pos *filePosition, mode GrammarMode, stub func(*G)) *Grammar {
 		}
 	}
 
-	for name, _ := range g.builders {
-		if _, ok := capturePos[name]; !ok {
-			p := bg.builderPos[name]
-			bg.addErrorf(p, "missing capture %q for builder", name)
-		}
-	}
+	// and every builder has a matching g.Capture()
 
 	if len(g.builders) > 0 {
+		for name, _ := range g.builders {
+			if _, ok := capturePos[name]; !ok {
+				p := bg.builderPos[name]
+				bg.addErrorf(p, "missing capture %q for builder", name)
+			}
+		}
+
 		for name, pos := range capturePos {
 			if _, ok := bg.builderPos[name]; !ok {
 				for _, p := range pos {
@@ -1571,10 +1593,17 @@ func buildGrammar(pos *filePosition, mode GrammarMode, stub func(*G)) *Grammar {
 		}
 	}
 
-	if bg.Start == "" {
-		bg.addError(g.pos, "starting rule undefined")
-	} else if _, ok := g.rules[bg.Start]; !ok {
-		bg.addErrorf(g.pos, "starting rule %q is missing", bg.Start)
+	// mark all zero width rules, using a closure algorithm
+	// repeat until no new rules marked
+
+	n := 1
+	for n > 0 {
+		n = 0
+		for _, rule := range g.rules {
+			if rule.setZeroWidth() {
+				n++
+			}
+		}
 	}
 
 	err := errorSummary(pos, bg.errors)
