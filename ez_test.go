@@ -251,6 +251,57 @@ func TestErrors(t *testing.T) {
 	} else {
 		t.Logf("test grammar raised error:\n %v", g.Err)
 	}
+	// boo
+
+	g = BuildGrammar(func(g *G) {
+		g.Start = "expr"
+
+		g.Define("expr", func() {
+			g.Call("expr")
+		})
+	})
+
+	if g.Err == nil {
+		t.Error("left rec should raise error")
+	} else {
+		t.Logf("test grammar raised error:\n %v", g.Err)
+	}
+	// boo
+
+	g = BuildGrammar(func(g *G) {
+		g.Start = "expr1"
+
+		g.Define("expr1", func() {
+			g.Optional().Do(func() {
+				g.String("test")
+			})
+			g.Call("expr1")
+		})
+	})
+
+	if g.Err == nil {
+		t.Error("indirect left rec should raise error")
+	} else {
+		t.Logf("test grammar raised error:\n %v", g.Err)
+	}
+	// boo
+
+	g = BuildGrammar(func(g *G) {
+		g.Start = "expr1"
+
+		g.Define("expr1", func() {
+			g.Call("expr2")
+		})
+		g.Define("expr2", func() {
+			g.Call("expr1")
+		})
+	})
+
+	if g.Err == nil {
+		t.Error("mutual left rec should raise error")
+	} else {
+		t.Logf("test grammar raised error:\n %v", g.Err)
+	}
 }
 
 func TestLogger(t *testing.T) {

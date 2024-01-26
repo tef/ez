@@ -274,16 +274,57 @@ type parseAction struct {
 	terminal  bool
 }
 
-func (a *parseAction) Walk(stub func(*parseAction)) {
+func (a *parseAction) walk(stub func(*parseAction)) {
 	if a == nil {
 		return
 	}
 	if a.args != nil {
 		for _, c := range a.args {
-			c.Walk(stub)
+			c.walk(stub)
 		}
 	}
 	stub(a)
+}
+
+func (a *parseAction) leftCalls() []string {
+	if a == nil {
+		return []string{}
+	}
+
+	switch a.kind {
+	case choiceAction:
+		out := []string{}
+		for _, v := range a.args {
+			for _, j := range v.leftCalls() {
+				out = append(out, j)
+			}
+		}
+		return out
+
+	case traceAction,
+		doAction, sequenceAction,
+		optionalAction, repeatAction,
+		lookaheadAction, captureAction, rejectAction,
+		matchRuneAction, matchStringAction, matchByteAction:
+
+		out := []string{}
+		for _, v := range a.args {
+			for _, j := range v.leftCalls() {
+				out = append(out, j)
+			}
+			if !v.zeroWidth {
+				break
+			}
+		}
+
+		return out
+
+	case callAction:
+		return []string{a.name}
+	}
+
+	return []string{}
+
 }
 
 func (a *parseAction) setTerminal() {
@@ -322,6 +363,11 @@ func (a *parseAction) setTerminal() {
 	case captureAction:
 		a.terminal = allTerminal
 
+	case matchRuneAction, matchStringAction:
+		a.terminal = allTerminal
+	case matchByteAction:
+		a.terminal = allTerminal
+
 	case startOfFileAction, endOfFileAction:
 		a.terminal = true
 	case startOfLineAction, endOfLineAction:
@@ -330,8 +376,6 @@ func (a *parseAction) setTerminal() {
 	case runeAction, stringAction:
 		a.terminal = true
 	case runeRangeAction, runeExceptAction:
-		a.terminal = true
-	case matchRuneAction, matchStringAction:
 		a.terminal = true
 
 	case spaceAction, tabAction:
@@ -348,9 +392,6 @@ func (a *parseAction) setTerminal() {
 		a.terminal = true
 	case byteRangeAction, byteExceptAction:
 		a.terminal = true
-	case matchByteAction:
-		a.terminal = true
-
 	default:
 		a.terminal = false
 	}
@@ -396,6 +437,11 @@ func (a *parseAction) setZeroWidth(rules map[string]bool) bool {
 	case optionalAction:
 		a.zeroWidth = true
 
+	case matchRuneAction, matchStringAction:
+		a.zeroWidth = anyZw
+	case matchByteAction:
+		a.zeroWidth = anyZw
+
 	case startOfFileAction, endOfFileAction:
 		a.zeroWidth = true
 	case startOfLineAction:
@@ -407,8 +453,6 @@ func (a *parseAction) setZeroWidth(rules map[string]bool) bool {
 		a.zeroWidth = false
 	case runeRangeAction, runeExceptAction:
 		a.zeroWidth = false
-	case matchRuneAction, matchStringAction:
-		a.zeroWidth = anyZw
 
 	case spaceAction, tabAction:
 		a.zeroWidth = false
@@ -428,9 +472,6 @@ func (a *parseAction) setZeroWidth(rules map[string]bool) bool {
 		a.zeroWidth = false
 	case byteRangeAction, byteExceptAction:
 		a.zeroWidth = false
-	case matchByteAction:
-		a.zeroWidth = false
-
 	default:
 		a.zeroWidth = false
 	}
@@ -1646,7 +1687,7 @@ func buildGrammar(pos *filePosition, mode GrammarMode, stub func(*G)) *Grammar {
 	callPos := make(map[string][]*filePosition, 0)
 
 	for _, rule := range g.rules {
-		rule.Walk(func(a *parseAction) {
+		rule.walk(func(a *parseAction) {
 			switch a.kind {
 			case captureAction:
 				capturePos[a.name] = append(capturePos[a.name], a.pos)
@@ -1743,6 +1784,50 @@ func buildGrammar(pos *filePosition, mode GrammarMode, stub func(*G)) *Grammar {
 		}
 	}
 
+	// left recursion check
+
+	directCalls := make(map[string][]string)
+
+	for name, rule := range g.rules {
+		directCalls[name] = rule.leftCalls()
+	}
+
+leftCheck:
+	for name, _ := range g.rules {
+		for _, v := range directCalls[name] {
+			if v == name {
+				p := bg.rulePos[name]
+				bg.addErrorf(p, "%s is directly left recursive", name)
+				continue leftCheck
+			}
+		}
+		seen := make(map[string]bool)
+		seen[name] = true
+
+		indirects := make([]string, 0)
+
+		var walk func(string)
+		walk = func(s string) {
+			for _, v := range directCalls[s] {
+				indirects = append(indirects, v)
+				if _, ok := seen[v]; !ok {
+					seen[v] = true
+					walk(v)
+				}
+			}
+
+		}
+		walk(name)
+
+		for _, v := range indirects {
+			if v == name {
+				p := bg.rulePos[name]
+				bg.addErrorf(p, "%s is mutually left recursive", name)
+				break
+			}
+		}
+	}
+
 	err := errorSummary(pos, bg.errors)
 
 	if err != nil {
@@ -1788,24 +1873,15 @@ type parserState struct {
 	offset int
 	column int
 
-	lineStart  int
+	lineStart  int // offset
 	lineNumber int
-	lineIndent int
+	lineIndent int // column
 
 	numNodes     int
 	lastSibling  int
 	countSibling int
 
 	matchIndent parseFunc
-
-	// indent_column int
-	// for when we match n whitespace against a tab
-	// leftover_tab int
-	// leftover_tab pos
-	// indents, dedent
-	// parent
-	// values map[string]any
-
 }
 
 func atEnd(s *parserState) bool {
