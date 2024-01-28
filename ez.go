@@ -2286,12 +2286,8 @@ func buildAction(c *grammarConfig, a *parseAction) parseFunc {
 			}
 
 			rule := s.i.rules[idx] // can't move this out to runtime unless we reorder defs
-			oldChoice := s.i.choiceExit
-			s.i.choiceExit = false
 
 			out := rule(s)
-			s.i.choiceExit = oldChoice
-
 			if s.i.trace {
 				if out {
 					fn("%v: Call(%q) exiting, at line %v, col %v\n", prefix, name, s.lineNumber, s.column)
@@ -2720,13 +2716,15 @@ func buildAction(c *grammarConfig, a *parseAction) parseFunc {
 			rules[i] = buildAction(c, r)
 		}
 		return func(s *parserState) bool {
+			oldExit := s.i.choiceExit
 			for _, r := range rules {
 				var s1 parserState
 				copyState(s, &s1)
+
 				s1.i.choiceExit = false
 				if r(&s1) {
-					s1.i.choiceExit = s.i.choiceExit
 					mergeState(s, &s1)
+					s.i.choiceExit = oldExit
 					return true
 				}
 				trimState(s, &s1)
@@ -2734,9 +2732,37 @@ func buildAction(c *grammarConfig, a *parseAction) parseFunc {
 					break
 				}
 			}
+			s.i.choiceExit = oldExit
 			return false
 		}
-	case doAction, caseAction, ruleAction, sequenceAction:
+
+	case ruleAction:
+		rules := make([]parseFunc, len(a.args))
+		for i, r := range a.args {
+			rules[i] = buildAction(c, r)
+		}
+
+		if len(rules) == 0 {
+			return func(s *parserState) bool { return true }
+		}
+
+		return func(s *parserState) bool {
+			var s1 parserState
+			copyState(s, &s1)
+			oldChoice := s1.i.choiceExit
+			s1.i.choiceExit = false
+			for _, r := range rules {
+				if !r(&s1) {
+					s.i.choiceExit = oldChoice
+					return false
+				}
+			}
+			s1.i.choiceExit = oldChoice
+			mergeState(s, &s1)
+			return true
+		}
+
+	case doAction, caseAction, sequenceAction:
 		rules := make([]parseFunc, len(a.args))
 		for i, r := range a.args {
 			rules[i] = buildAction(c, r)
