@@ -18,11 +18,16 @@ const (
 	printAction = "Print"
 	traceAction = "Trace"
 
-	callAction      = "Call"
-	choiceAction    = "Choice"
-	cutAction       = "Cut"
-	sequenceAction  = "Sequence"
-	doAction        = "Do"
+	callAction = "Call"
+
+	choiceAction = "Choice"
+	caseAction   = "Case"
+	cutAction    = "Cut"
+
+	doAction       = "Do"
+	ruleAction     = "Rule"
+	sequenceAction = "Sequence"
+
 	optionalAction  = "Optional"
 	repeatAction    = "Repeat"
 	lookaheadAction = "Lookahead"
@@ -272,6 +277,8 @@ type parseAction struct {
 
 	zeroWidth bool
 	terminal  bool
+	// regular?
+	//
 }
 
 func (a *parseAction) walk(stub func(*parseAction)) {
@@ -302,7 +309,7 @@ func (a *parseAction) leftCalls() []string {
 		return out
 
 	case traceAction,
-		doAction, sequenceAction,
+		doAction, caseAction, ruleAction, sequenceAction,
 		optionalAction, repeatAction,
 		lookaheadAction, captureAction, rejectAction,
 		matchRuneAction, matchStringAction, matchByteAction:
@@ -346,7 +353,7 @@ func (a *parseAction) setTerminal() {
 	case callAction:
 		a.terminal = false
 
-	case doAction, sequenceAction:
+	case doAction, sequenceAction, caseAction, ruleAction:
 		a.terminal = allTerminal
 	case choiceAction:
 		a.terminal = allTerminal
@@ -408,6 +415,8 @@ func (a *parseAction) setZeroWidth(rules map[string]bool) bool {
 			allZw = allZw && c.zeroWidth
 			anyZw = anyZw || c.zeroWidth
 		}
+		// empty list should be true
+		anyZw = anyZw || allZw
 	}
 
 	switch a.kind {
@@ -420,7 +429,7 @@ func (a *parseAction) setZeroWidth(rules map[string]bool) bool {
 	case callAction:
 		a.zeroWidth = rules[a.name]
 
-	case doAction, sequenceAction:
+	case doAction, caseAction, ruleAction, sequenceAction:
 		a.zeroWidth = allZw
 	case choiceAction:
 		a.zeroWidth = anyZw
@@ -486,20 +495,6 @@ type nodeBuilder struct {
 	parent *nodeBuilder
 	rule   *string
 	args   []*parseAction
-}
-
-func (b *nodeBuilder) buildSequence(pos *filePosition) *parseAction {
-	if len(b.args) == 0 {
-		return nil
-	}
-	if len(b.args) == 1 {
-		return b.args[0]
-	}
-	return &parseAction{kind: sequenceAction, args: b.args, pos: pos}
-}
-
-func (b *nodeBuilder) buildNode(pos *filePosition, kind string) *parseAction {
-	return &parseAction{kind: kind, args: b.args, pos: pos}
 }
 
 func (b *nodeBuilder) append(a *parseAction) {
@@ -620,7 +615,7 @@ func (g *G) markPosition(actionKind string) *filePosition {
 	return pos
 }
 
-func (g *G) buildStub(kind string, stub func()) *nodeBuilder {
+func (g *G) buildArgs(kind string, stub func()) []*parseAction {
 	var rule *string
 	oldNb := g.nb
 	if oldNb != nil {
@@ -630,16 +625,16 @@ func (g *G) buildStub(kind string, stub func()) *nodeBuilder {
 	g.nb = newNb
 	stub()
 	g.nb = oldNb
-	return newNb
+	return newNb.args
 }
 
-func (g *G) buildRule(rule string, stub func()) *nodeBuilder {
+func (g *G) buildRule(rule string, stub func()) []*parseAction {
 	oldNb := g.nb
 	newNb := &nodeBuilder{kind: defineAction, rule: &rule, parent: oldNb}
 	g.nb = newNb
 	stub()
 	g.nb = oldNb
-	return newNb
+	return newNb.args
 }
 
 func (g *G) Define(name string, stub func()) {
@@ -664,8 +659,9 @@ func (g *G) Define(name string, stub func()) {
 
 	g.rulePos[name] = p
 
-	r := g.buildRule(name, stub)
-	g.grammar.rules[name] = r.buildSequence(p)
+	args := g.buildRule(name, stub)
+	a := &parseAction{kind: ruleAction, args: args, pos: p}
+	g.grammar.rules[name] = a
 	g.grammarConfig().names = append(g.grammarConfig().names, name)
 }
 
@@ -686,9 +682,9 @@ func (g *G) Trace(stub func()) {
 		return
 	}
 
-	r := g.buildStub(traceAction, stub)
+	args := g.buildArgs(traceAction, stub)
 
-	a := &parseAction{kind: traceAction, args: r.args, pos: p}
+	a := &parseAction{kind: traceAction, args: args, pos: p}
 	g.nb.append(a)
 }
 
@@ -877,8 +873,8 @@ func (g *G) OffsideBlock(stub func()) {
 		return
 	}
 
-	r := g.buildStub(offsideBlockAction, stub)
-	a := &parseAction{kind: offsideBlockAction, args: r.args, pos: p}
+	args := g.buildArgs(offsideBlockAction, stub)
+	a := &parseAction{kind: offsideBlockAction, args: args, pos: p}
 	g.nb.append(a)
 }
 
@@ -891,8 +887,8 @@ func (g *G) IndentedBlock(stub func()) {
 		return
 	}
 
-	r := g.buildStub(indentedBlockAction, stub)
-	a := &parseAction{kind: indentedBlockAction, args: r.args, pos: p}
+	args := g.buildArgs(indentedBlockAction, stub)
+	a := &parseAction{kind: indentedBlockAction, args: args, pos: p}
 	g.nb.append(a)
 }
 
@@ -922,8 +918,8 @@ func (g *G) MatchString(stubs map[string]func()) {
 			g.addError(p, "cant call MatchString() with nil function")
 			return
 		} else {
-			r := g.buildStub(matchStringAction, stub)
-			args[c] = r.buildSequence(p)
+			stubArgs := g.buildArgs(matchStringAction, stub)
+			args[c] = &parseAction{kind: caseAction, pos: p, args: stubArgs}
 		}
 	}
 	a := &parseAction{kind: matchStringAction, stringSwitch: args, pos: p}
@@ -944,8 +940,8 @@ func (g *G) MatchRune(stubs map[rune]func()) {
 		if stub == nil {
 			g.addError(p, "cant call MatchRune() with nil function")
 		} else {
-			r := g.buildStub(matchRuneAction, stub)
-			args[c] = r.buildSequence(p)
+			stubArgs := g.buildArgs(matchRuneAction, stub)
+			args[c] = &parseAction{kind: caseAction, pos: p, args: stubArgs}
 		}
 	}
 	a := &parseAction{kind: matchRuneAction, runeSwitch: args, pos: p}
@@ -993,8 +989,8 @@ func (g *G) MatchByte(stubs map[byte]func()) {
 		if stub == nil {
 			g.addError(p, "cant call MatchByte() with nil function")
 		} else {
-			r := g.buildStub(matchByteAction, stub)
-			args[c] = r.buildSequence(p)
+			stubArgs := g.buildArgs(matchByteAction, stub)
+			args[c] = &parseAction{kind: caseAction, pos: p, args: stubArgs}
 		}
 	}
 	a := &parseAction{kind: matchByteAction, byteSwitch: args, pos: p}
@@ -1217,22 +1213,22 @@ func (g *G) Call(name string) {
 	g.nb.append(a)
 }
 
-func (g *G) Sequence(stub func()) {
-	p := g.markPosition(sequenceAction)
-	if g.shouldExit(p, sequenceAction) {
+func (g *G) Do(stub func()) {
+	p := g.markPosition(doAction)
+	if g.shouldExit(p, doAction) {
 		return
 	} else if stub == nil {
 		g.addError(p, "cant call Sequence() with nil")
 		return
 	}
 
-	r := g.buildStub(sequenceAction, stub)
-	a := r.buildSequence(p)
+	args := g.buildArgs(doAction, stub)
+	a := &parseAction{kind: doAction, pos: p, args: args}
 	g.nb.append(a)
 }
 
 func (g *G) Capture(name string, stub func()) {
-	p := g.markPosition(sequenceAction)
+	p := g.markPosition(captureAction)
 	if g.shouldExit(p, captureAction) {
 		return
 	} else if stub == nil {
@@ -1240,9 +1236,9 @@ func (g *G) Capture(name string, stub func()) {
 		return
 	}
 
-	r := g.buildStub(sequenceAction, stub)
+	args := g.buildArgs(captureAction, stub)
 
-	a := &parseAction{kind: captureAction, name: name, args: r.args, pos: p}
+	a := &parseAction{kind: captureAction, name: name, args: args, pos: p}
 	g.nb.append(a)
 }
 
@@ -1274,8 +1270,8 @@ func (g *G) Choice(options ...func()) {
 		if stub == nil {
 			g.addError(p, "cant call Choice() with nil")
 		} else {
-			r := g.buildStub(choiceAction, stub)
-			args[i] = r.buildSequence(p)
+			stubArgs := g.buildArgs(choiceAction, stub)
+			args[i] = &parseAction{kind: caseAction, pos: p, args: stubArgs}
 		}
 	}
 	a := &parseAction{kind: choiceAction, args: args, pos: p}
@@ -1290,8 +1286,8 @@ func (g *G) Lookahead(stub func()) {
 		g.addError(p, "cant call Lookahead() with nil")
 		return
 	}
-	r := g.buildStub(lookaheadAction, stub)
-	a := &parseAction{kind: lookaheadAction, args: r.args, pos: p}
+	args := g.buildArgs(lookaheadAction, stub)
+	a := &parseAction{kind: lookaheadAction, args: args, pos: p}
 	g.nb.append(a)
 }
 
@@ -1303,8 +1299,8 @@ func (g *G) Reject(stub func()) {
 		g.addError(p, "cant call Reject() with nil")
 		return
 	}
-	r := g.buildStub(rejectAction, stub)
-	a := &parseAction{kind: rejectAction, args: r.args, pos: p}
+	args := g.buildArgs(rejectAction, stub)
+	a := &parseAction{kind: rejectAction, args: args, pos: p}
 	g.nb.append(a)
 }
 
@@ -1445,8 +1441,7 @@ func (g *G) repeatSequence(repeatPos *filePosition, a *parseAction, stub func())
 		return
 	}
 
-	r := g.buildStub(repeatAction, stub)
-	a.args = r.args
+	a.args = g.buildArgs(repeatAction, stub)
 }
 
 func (g *G) repeatChoice(repeatPos *filePosition, a *parseAction, options []func()) {
@@ -1470,8 +1465,8 @@ func (g *G) repeatChoice(repeatPos *filePosition, a *parseAction, options []func
 		if stub == nil {
 			g.addError(p, "cant call Choice() with nil")
 		} else {
-			r := g.buildStub(choiceAction, stub)
-			args[i] = r.buildSequence(p)
+			stubArgs := g.buildArgs(choiceAction, stub)
+			args[i] = &parseAction{kind: caseAction, pos: p, args: stubArgs}
 		}
 	}
 	c := &parseAction{kind: choiceAction, args: args, pos: p}
@@ -1522,8 +1517,7 @@ func (g *G) optionalSequence(optionalPos *filePosition, a *parseAction, stub fun
 		return
 	}
 
-	r := g.buildStub(optionalAction, stub)
-	a.args = r.args
+	a.args = g.buildArgs(optionalAction, stub)
 }
 
 func (g *G) optionalChoice(optionalPos *filePosition, a *parseAction, options []func()) {
@@ -1547,8 +1541,8 @@ func (g *G) optionalChoice(optionalPos *filePosition, a *parseAction, options []
 		if stub == nil {
 			g.addError(p, "cant call Choice() with nil")
 		} else {
-			r := g.buildStub(choiceAction, stub)
-			args[i] = r.buildSequence(p)
+			stubArgs := g.buildArgs(caseAction, stub)
+			args[i] = &parseAction{kind: caseAction, pos: p, args: stubArgs}
 		}
 	}
 	c := &parseAction{kind: choiceAction, args: args, pos: p}
@@ -1739,9 +1733,7 @@ func buildGrammar(pos *filePosition, mode GrammarMode, stub func(*G)) *Grammar {
 	// mark all terminal rules
 
 	for _, rule := range g.rules {
-		if rule != nil {
-			rule.setTerminal()
-		}
+		rule.setTerminal()
 	}
 
 	// mark all zero width rules, using a closure algorithm
@@ -1756,12 +1748,10 @@ func buildGrammar(pos *filePosition, mode GrammarMode, stub func(*G)) *Grammar {
 	for n > 0 {
 		n = 0
 		for name, rule := range g.rules {
-			if rule != nil {
-				if rule.setZeroWidth(zwMap) {
-					n++
-				}
-				zwMap[name] = rule.zeroWidth
+			if rule.setZeroWidth(zwMap) {
+				n++
 			}
+			zwMap[name] = rule.zeroWidth
 		}
 	}
 
@@ -1769,17 +1759,15 @@ func buildGrammar(pos *filePosition, mode GrammarMode, stub func(*G)) *Grammar {
 
 	for name, rule := range g.rules {
 		nullable := name[len(name)-1] == '?'
-		if rule != nil {
-			if nullable {
-				if !rule.zeroWidth {
-					p := bg.rulePos[name]
-					bg.addErrorf(p, "nullable rule %q not actually nullable", name)
-				}
-			} else {
-				if rule.zeroWidth {
-					p := bg.rulePos[name]
-					bg.addErrorf(p, "rule %q is nullable but not marked", name)
-				}
+		if nullable {
+			if !rule.zeroWidth {
+				p := bg.rulePos[name]
+				bg.addErrorf(p, "nullable rule %q not actually nullable", name)
+			}
+		} else {
+			if rule.zeroWidth {
+				p := bg.rulePos[name]
+				bg.addErrorf(p, "rule %q is nullable but not marked", name)
 			}
 		}
 	}
@@ -2669,11 +2657,20 @@ func buildAction(c *grammarConfig, a *parseAction) parseFunc {
 			}
 			return false
 		}
-	case sequenceAction:
+	case doAction, caseAction, ruleAction, sequenceAction:
 		rules := make([]parseFunc, len(a.args))
 		for i, r := range a.args {
 			rules[i] = buildAction(c, r)
 		}
+
+		if len(rules) == 0 {
+			return func(s *parserState) bool { return true }
+		}
+
+		if len(rules) == 1 {
+			return rules[0]
+		}
+
 		return func(s *parserState) bool {
 			var s1 parserState
 			copyState(s, &s1)

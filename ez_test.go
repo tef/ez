@@ -302,6 +302,16 @@ func TestErrors(t *testing.T) {
 	} else {
 		t.Logf("test grammar raised error:\n %v", g.Err)
 	}
+
+	g = BuildGrammar(func(g *G) {
+		g.Define("expr", func() {})
+	})
+
+	if g.Err == nil {
+		t.Error("empty non null rule should raise error")
+	} else {
+		t.Logf("test grammar raised error:\n %v", g.Err)
+	}
 }
 
 func TestLogger(t *testing.T) {
@@ -423,7 +433,7 @@ func TestParser(t *testing.T) {
 			})
 		})
 		g.Define("test_sequence", func() {
-			g.Sequence(func() {
+			g.Do(func() {
 				g.String("a")
 				g.String("b")
 				g.String("c")
