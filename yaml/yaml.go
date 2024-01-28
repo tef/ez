@@ -8,7 +8,7 @@ var YamlParser = ez.BuildParser(func(g *ez.G) {
 	g.Mode = ez.TextMode()
 	g.Start = "document"
 
-	g.Define("whitespace?", func() {
+	g.Define("whitespace?").Do(func() {
 		g.Repeat().Choice(func() {
 			g.Whitespace()
 			g.Newline()
@@ -24,7 +24,7 @@ var YamlParser = ez.BuildParser(func(g *ez.G) {
 		})
 	})
 
-	g.Define("newline?", func() {
+	g.Define("newline?").Do(func() {
 		g.Repeat().Choice(func() {
 			g.Whitespace()
 			g.Newline()
@@ -38,7 +38,7 @@ var YamlParser = ez.BuildParser(func(g *ez.G) {
 		})
 	})
 
-	g.Define("document", func() {
+	g.Define("document").Do(func() {
 		g.Call("newline?")
 		g.Choice(func() {
 			g.Call("indented-object")
@@ -56,7 +56,7 @@ var YamlParser = ez.BuildParser(func(g *ez.G) {
 		})
 	})
 
-	g.Define("indented-value", func() {
+	g.Define("indented-value").Do(func() {
 		g.Choice(func() {
 			g.Call("indented-object")
 		}, func() {
@@ -66,7 +66,7 @@ var YamlParser = ez.BuildParser(func(g *ez.G) {
 		})
 	})
 
-	g.Define("indented-object", func() {
+	g.Define("indented-object").Do(func() {
 		g.Capture("object", func() {
 			g.OffsideBlock(func() {
 				g.Call("key")
@@ -104,7 +104,7 @@ var YamlParser = ez.BuildParser(func(g *ez.G) {
 		})
 	})
 
-	g.Define("indented-list", func() {
+	g.Define("indented-list").Do(func() {
 		g.Capture("list", func() {
 			g.OffsideBlock(func() {
 				g.String("-")
@@ -138,7 +138,7 @@ var YamlParser = ez.BuildParser(func(g *ez.G) {
 		})
 	})
 
-	g.Define("key", func() {
+	g.Define("key").Do(func() {
 		g.Choice(func() {
 			g.Call("string")
 		}, func() {
@@ -151,7 +151,7 @@ var YamlParser = ez.BuildParser(func(g *ez.G) {
 		})
 	})
 
-	g.Define("value", func() {
+	g.Define("value").Do(func() {
 		g.Choice(func() {
 			g.Call("list")
 		}, func() {
@@ -176,7 +176,7 @@ var YamlParser = ez.BuildParser(func(g *ez.G) {
 
 	})
 
-	g.Define("list", func() {
+	g.Define("list").Do(func() {
 		g.String("[")
 		g.Whitespace()
 		g.Capture("list", func() {
@@ -194,7 +194,7 @@ var YamlParser = ez.BuildParser(func(g *ez.G) {
 
 	})
 
-	g.Define("object", func() {
+	g.Define("object").Do(func() {
 		g.String("{")
 		g.Whitespace()
 		g.Capture("object", func() {
@@ -220,7 +220,7 @@ var YamlParser = ez.BuildParser(func(g *ez.G) {
 		g.String("}")
 	})
 
-	g.Define("string", func() {
+	g.Define("string").Do(func() {
 		g.String("\"")
 		g.Capture("string", func() {
 			g.Repeat().Choice(func() {
@@ -247,7 +247,7 @@ var YamlParser = ez.BuildParser(func(g *ez.G) {
 		g.String("\"")
 	})
 
-	g.Define("number", func() {
+	g.Define("number").Do(func() {
 		g.Capture("number", func() {
 			g.Optional().Do(func() {
 				g.String("-")

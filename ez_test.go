@@ -34,7 +34,7 @@ func TestErrors(t *testing.T) {
 	g = BuildGrammar(func(g *G) {
 		g.Start = "expr"
 
-		g.Define("expr", func() {
+		g.Define("expr").Do(func() {
 			g.Call("missing")
 		})
 	})
@@ -48,9 +48,9 @@ func TestErrors(t *testing.T) {
 	g = BuildGrammar(func(g *G) {
 		g.Start = "expr"
 
-		g.Define("expr", func() {
+		g.Define("expr").Do(func() {
 		})
-		g.Define("expr2", func() {
+		g.Define("expr2").Do(func() {
 		})
 	})
 
@@ -64,8 +64,8 @@ func TestErrors(t *testing.T) {
 	g = BuildGrammar(func(g *G) {
 		g.Start = "expr"
 
-		g.Define("expr", func() {
-			g.Define("expr2", func() {
+		g.Define("expr").Do(func() {
+			g.Define("expr2").Do(func() {
 			})
 		})
 	})
@@ -79,7 +79,7 @@ func TestErrors(t *testing.T) {
 	g = BuildGrammar(func(g *G) {
 		g.Start = "expr"
 
-		g.Define("expr", func() {})
+		g.Define("expr").Do(func() {})
 		g.String("true")
 	})
 
@@ -93,7 +93,7 @@ func TestErrors(t *testing.T) {
 	g = BuildGrammar(func(g *G) {
 		g.Start = "expr"
 
-		g.Define("expr", func() {
+		g.Define("expr").Do(func() {
 			w := g.Whitespace()
 			g.String("x")
 			w.Min(1)
@@ -110,7 +110,7 @@ func TestErrors(t *testing.T) {
 	g = BuildGrammar(func(g *G) {
 		g.Start = "expr"
 
-		g.Define("expr", func() {
+		g.Define("expr").Do(func() {
 			g.Rune().Range("9-0")
 		})
 	})
@@ -126,7 +126,7 @@ func TestErrors(t *testing.T) {
 		g.Mode = BinaryMode()
 		g.Start = "expr"
 
-		g.Define("expr", func() {
+		g.Define("expr").Do(func() {
 			g.Whitespace()
 		})
 	})
@@ -141,7 +141,7 @@ func TestErrors(t *testing.T) {
 	g = BuildGrammar(func(g *G) {
 		g.Start = "expr"
 
-		g.Define("expr", func() {
+		g.Define("expr").Do(func() {
 			g.String("no tab\t")
 		})
 	})
@@ -156,7 +156,7 @@ func TestErrors(t *testing.T) {
 	g = BuildGrammar(func(g *G) {
 		g.Start = "expr"
 
-		g.Define("expr", func() {
+		g.Define("expr").Do(func() {
 			g.Byte()
 		})
 	})
@@ -169,7 +169,7 @@ func TestErrors(t *testing.T) {
 
 	// can't call String() with nonrune
 	g = BuildGrammar(func(g *G) {
-		g.Define("test", func() {
+		g.Define("test").Do(func() {
 			g.String("\xFF")
 		})
 	})
@@ -184,7 +184,7 @@ func TestErrors(t *testing.T) {
 	g = BuildGrammar(func(g *G) {
 		g.Start = "expr"
 
-		g.Define("expr", func() {
+		g.Define("expr").Do(func() {
 			g.String("foo")
 		})
 
@@ -202,7 +202,7 @@ func TestErrors(t *testing.T) {
 	g = BuildGrammar(func(g *G) {
 		g.Start = "expr"
 
-		g.Define("expr", func() {
+		g.Define("expr").Do(func() {
 			g.Capture("expr", func() {
 				g.String("foo")
 			})
@@ -224,7 +224,7 @@ func TestErrors(t *testing.T) {
 	g = BuildGrammar(func(g *G) {
 		g.Start = "expr"
 
-		g.Define("expr", func() {
+		g.Define("expr").Do(func() {
 			g.Cut()
 		})
 	})
@@ -239,7 +239,7 @@ func TestErrors(t *testing.T) {
 	g = BuildGrammar(func(g *G) {
 		g.Start = "expr"
 
-		g.Define("expr", func() {
+		g.Define("expr").Do(func() {
 			g.Cut()
 			g.Byte()
 			g.String("\t")
@@ -256,7 +256,7 @@ func TestErrors(t *testing.T) {
 	g = BuildGrammar(func(g *G) {
 		g.Start = "expr"
 
-		g.Define("expr", func() {
+		g.Define("expr").Do(func() {
 			g.Call("expr")
 		})
 	})
@@ -271,7 +271,7 @@ func TestErrors(t *testing.T) {
 	g = BuildGrammar(func(g *G) {
 		g.Start = "expr1"
 
-		g.Define("expr1", func() {
+		g.Define("expr1").Do(func() {
 			g.Optional().Do(func() {
 				g.String("test")
 			})
@@ -289,10 +289,10 @@ func TestErrors(t *testing.T) {
 	g = BuildGrammar(func(g *G) {
 		g.Start = "expr1"
 
-		g.Define("expr1", func() {
+		g.Define("expr1").Do(func() {
 			g.Call("expr2")
 		})
-		g.Define("expr2", func() {
+		g.Define("expr2").Do(func() {
 			g.Call("expr1")
 		})
 	})
@@ -304,7 +304,7 @@ func TestErrors(t *testing.T) {
 	}
 
 	g = BuildGrammar(func(g *G) {
-		g.Define("expr", func() {})
+		g.Define("expr").Do(func() {})
 	})
 
 	if g.Err == nil {
@@ -329,7 +329,7 @@ func TestLogger(t *testing.T) {
 			logMessages += 1
 		}
 
-		g.Define("expr", func() {
+		g.Define("expr").Do(func() {
 			g.Print("TEST")
 			g.String("TEST")
 
@@ -362,12 +362,12 @@ func TestLogger(t *testing.T) {
 			logMessages += 1
 		}
 
-		g.Define("expr", func() {
+		g.Define("expr").Do(func() {
 			g.Trace(func() {
 				g.Call("test")
 			})
 		})
-		g.Define("test", func() {
+		g.Define("test").Do(func() {
 			g.String("TEST")
 		})
 	})
@@ -396,7 +396,7 @@ func TestParser(t *testing.T) {
 	parser = BuildParser(func(g *G) {
 		g.Mode = TextMode()
 		g.Start = "start"
-		g.Define("start", func() {
+		g.Define("start").Do(func() {
 			g.Call("test_call")
 			g.Call("test_choice")
 			g.Call("test_cut")
@@ -406,22 +406,20 @@ func TestParser(t *testing.T) {
 			g.Call("test_lookahead")
 			g.Call("test_reject")
 		})
-		g.Define("test_call", func() {
+		g.Define("test_call").Do(func() {
 			g.Call("example")
 		})
-		g.Define("example", func() {
+		g.Define("example").Do(func() {
 			g.String("example")
 		})
-		g.Define("test_choice", func() {
-			g.Choice(func() {
-				g.String("a")
-			}, func() {
-				g.String("b")
-			}, func() {
-				g.String("c")
-			})
+		g.Define("test_choice").Choice(func() {
+			g.String("a")
+		}, func() {
+			g.String("b")
+		}, func() {
+			g.String("c")
 		})
-		g.Define("test_cut", func() {
+		g.Define("test_cut").Do(func() {
 			g.Choice(func() {
 				g.Capture("a", func() {
 					g.String("a")
@@ -432,14 +430,14 @@ func TestParser(t *testing.T) {
 				g.String("aa")
 			})
 		})
-		g.Define("test_sequence", func() {
+		g.Define("test_sequence").Do(func() {
 			g.Do(func() {
 				g.String("a")
 				g.String("b")
 				g.String("c")
 			})
 		})
-		g.Define("test_optional", func() {
+		g.Define("test_optional").Do(func() {
 			g.Optional().Do(func() {
 				g.String("1")
 			})
@@ -449,18 +447,18 @@ func TestParser(t *testing.T) {
 			})
 			g.String("4")
 		})
-		g.Define("test_repeat", func() {
+		g.Define("test_repeat").Do(func() {
 			g.Repeat().Min(1).Do(func() {
 				g.String("a")
 			})
 		})
-		g.Define("test_lookahead", func() {
+		g.Define("test_lookahead").Do(func() {
 			g.Lookahead(func() {
 				g.String("a")
 			})
 			g.Rune()
 		})
-		g.Define("test_reject", func() {
+		g.Define("test_reject").Do(func() {
 			g.Reject(func() {
 				g.String("a")
 			})
@@ -535,7 +533,7 @@ func TestStringMode(t *testing.T) {
 	parser = BuildParser(func(g *G) {
 		g.Start = "expr"
 		g.Mode = StringMode()
-		g.Define("expr", func() {
+		g.Define("expr").Do(func() {
 			g.StartOfFile()
 			g.WhitespaceNewline()
 			g.String("example")
@@ -559,7 +557,7 @@ func TestStringMode(t *testing.T) {
 	parser = BuildParser(func(g *G) {
 		g.Mode = StringMode()
 		g.Start = "start"
-		g.Define("start", func() {
+		g.Define("start").Do(func() {
 			g.Call("test_rune")
 			g.Call("test_string")
 			g.Call("test_range")
@@ -567,20 +565,20 @@ func TestStringMode(t *testing.T) {
 			g.Call("test_match_rune")
 		})
 
-		g.Define("test_rune", func() {
+		g.Define("test_rune").Do(func() {
 			g.Rune()
 		})
 
-		g.Define("test_string", func() {
+		g.Define("test_string").Do(func() {
 			g.String("example")
 		})
-		g.Define("test_range", func() {
+		g.Define("test_range").Do(func() {
 			g.Rune().Range("0", "1-9")
 		})
-		g.Define("test_inverted_range", func() {
+		g.Define("test_inverted_range").Do(func() {
 			g.Rune().Except("0-9")
 		})
-		g.Define("test_match_rune", func() {
+		g.Define("test_match_rune").Do(func() {
 			g.MatchRune(map[rune]func(){
 				'1': func() {
 					g.String("1")
@@ -643,7 +641,7 @@ func TestBinaryMode(t *testing.T) {
 		g.Mode = BinaryMode()
 		g.Start = "start"
 
-		g.Define("start", func() {
+		g.Define("start").Do(func() {
 			g.Call("test_byte")
 			g.Call("test_byterange")
 			g.Call("test_inverted_byterange")
@@ -652,22 +650,22 @@ func TestBinaryMode(t *testing.T) {
 			g.Call("test_match_byte")
 		})
 
-		g.Define("test_byte", func() {
+		g.Define("test_byte").Do(func() {
 			g.Byte()
 		})
-		g.Define("test_byterange", func() {
+		g.Define("test_byterange").Do(func() {
 			g.Byte().Range("0-9")
 		})
-		g.Define("test_inverted_byterange", func() {
+		g.Define("test_inverted_byterange").Do(func() {
 			g.Byte().Except("0-9")
 		})
-		g.Define("test_bytes", func() {
+		g.Define("test_bytes").Do(func() {
 			g.Bytes([]byte("test"))
 		})
-		g.Define("test_bytestring", func() {
+		g.Define("test_bytestring").Do(func() {
 			g.ByteString("test")
 		})
-		g.Define("test_match_byte", func() {
+		g.Define("test_match_byte").Do(func() {
 			g.MatchByte(map[byte]func(){
 				'1': func() {
 					g.ByteString("1")
@@ -737,7 +735,7 @@ func TestTextMode(t *testing.T) {
 	parser = BuildParser(func(g *G) {
 		g.Start = "expr"
 		g.Mode = TextMode().Tabstop(8)
-		g.Define("expr", func() {
+		g.Define("expr").Do(func() {
 			g.StartOfLine()
 			g.String("example")
 			g.Newline()
@@ -768,7 +766,7 @@ func TestCapture(t *testing.T) {
 
 	parser = BuildParser(func(g *G) {
 		g.Start = "start"
-		g.Define("start", func() {
+		g.Define("start").Do(func() {
 			g.Capture("main", func() {
 				g.String("A")
 				g.Choice(func() {
@@ -831,7 +829,7 @@ func TestCapture(t *testing.T) {
 	}
 	parser = BuildParser(func(g *G) {
 		g.Start = "start"
-		g.Define("start", func() {
+		g.Define("start").Do(func() {
 			g.Capture("main", func() {
 				g.String("A")
 			})
@@ -888,7 +886,7 @@ func TestBlockIndent(t *testing.T) {
 	parser = BuildParser(func(g *G) {
 		g.Start = "expr"
 		g.Mode = TextMode().Tabstop(8)
-		g.Define("expr", func() {
+		g.Define("expr").Do(func() {
 			g.Choice(func() {
 				g.String("block:")
 				g.Newline()
@@ -931,7 +929,7 @@ func TestOffsideIndent(t *testing.T) {
 	parser = BuildParser(func(g *G) {
 		g.Start = "expr"
 		g.Mode = TextMode().Tabstop(8)
-		g.Define("expr", func() {
+		g.Define("expr").Do(func() {
 			g.Choice(func() {
 				g.Choice(func() {
 					g.String("do")
@@ -975,7 +973,7 @@ func TestTabStop(t *testing.T) {
 	parser = BuildParser(func(g *G) {
 		g.Start = "expr"
 		g.Mode = TextMode().Tabstop(8)
-		g.Define("expr", func() {
+		g.Define("expr").Do(func() {
 			g.Whitespace().Width(4)
 			g.Whitespace().Width(5)
 			g.String("hello")
@@ -1016,7 +1014,7 @@ func BenchmarkParser(b *testing.B) {
 	var parser *Parser
 
 	parser = BuildParser(func(g *G) {
-		g.Define("expr", func() {
+		g.Define("expr").Do(func() {
 			g.Capture("e", func() {
 				g.String("x")
 

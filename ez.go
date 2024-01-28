@@ -637,9 +637,53 @@ func (g *G) buildRule(rule string, stub func()) []*parseAction {
 	return newNb.args
 }
 
-func (g *G) Define(name string, stub func()) {
+type DefineBlock struct {
+	name string
+	g    *G
+	a    *parseAction
+	p    *filePosition
+}
+
+func (db DefineBlock) Do(stub func()) {
+	db.g.defineSequence(db.name, db.p, db.a, stub)
+}
+
+func (db DefineBlock) Choice(options ...func()) {
+	db.g.defineChoice(db.name, db.p, db.a, options)
+}
+
+func (g *G) Define(name string) DefineBlock {
 	p := g.markPosition(defineAction)
+	db := DefineBlock{g: g, p: p, name: name}
+
 	if g.grammar == nil {
+		return db
+	} else if g.nb == nil {
+		g.addError(p, "must call define inside grammar")
+		return db
+	} else if g.nb.inRule() {
+		g.addError(p, "cant call define inside define")
+		return db
+	}
+
+	if oldPos, ok := g.rulePos[name]; ok {
+		g.addErrorf(p, "cant redefine %q, already defined at %v", name, oldPos)
+		return db
+	}
+
+	g.rulePos[name] = p
+
+	a := &parseAction{kind: ruleAction, args: nil, pos: p}
+	db.a = a
+	g.grammar.rules[name] = a
+	g.grammarConfig().names = append(g.grammarConfig().names, name)
+	return db
+}
+
+func (g *G) defineSequence(name string, definePos *filePosition, a *parseAction, stub func()) {
+	p := g.markPosition(defineAction)
+
+	if a == nil || g.grammar == nil {
 		return
 	} else if g.nb == nil {
 		g.addError(p, "must call define inside grammar")
@@ -647,22 +691,57 @@ func (g *G) Define(name string, stub func()) {
 	} else if g.nb.inRule() {
 		g.addError(p, "cant call define inside define")
 		return
-	} else if stub == nil {
-		g.addError(p, "cant call Define() with nil")
+	}
+
+	if p.n-definePos.n != 1 {
+		g.addError(p, "called in wrong position")
 		return
 	}
 
-	if oldPos, ok := g.rulePos[name]; ok {
-		g.addErrorf(p, "cant redefine %q, already defined at %v", name, oldPos)
+	if stub == nil {
+		g.addError(p, "cant call Do() with nil")
 		return
 	}
 
-	g.rulePos[name] = p
+	a.args = g.buildRule(name, stub)
+}
 
-	args := g.buildRule(name, stub)
-	a := &parseAction{kind: ruleAction, args: args, pos: p}
-	g.grammar.rules[name] = a
-	g.grammarConfig().names = append(g.grammarConfig().names, name)
+func (g *G) defineChoice(name string, definePos *filePosition, a *parseAction, options []func()) {
+	p := g.markPosition(defineAction)
+
+	if a == nil || g.grammar == nil {
+		return
+	} else if g.nb == nil {
+		g.addError(p, "must call define inside grammar")
+		return
+	} else if g.nb.inRule() {
+		g.addError(p, "cant call define inside define")
+		return
+	}
+
+	if p.n-definePos.n != 1 {
+		g.addError(p, "called in wrong position")
+		return
+	}
+
+	if len(options) == 0 {
+		g.addError(p, "cant call .Choice() with nil")
+		return
+	}
+
+	a.args = g.buildRule(name, func() {
+		args := make([]*parseAction, len(options))
+		for i, stub := range options {
+			if stub == nil {
+				g.addError(p, "cant call .Choice() with nil")
+			} else {
+				stubArgs := g.buildArgs(choiceAction, stub)
+				args[i] = &parseAction{kind: caseAction, pos: p, args: stubArgs}
+			}
+		}
+		c := &parseAction{kind: choiceAction, args: args, pos: p}
+		g.nb.append(c)
+	})
 }
 
 func (g *G) Print(args ...any) {
