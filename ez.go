@@ -11,14 +11,16 @@ import (
 )
 
 const (
-	grammarAction = "Grammar"
-	defineAction  = "Define"
-	builderAction = "Builder"
+	grammarAction   = "Grammar"
+	defineAction    = "Define"
+	builderAction   = "Builder"
+	recursiveAction = "Recursive"
 
 	printAction = "Print"
 	traceAction = "Trace"
 
-	callAction = "Call"
+	callAction  = "Call"
+	recurAction = "Recur"
 
 	choiceAction = "Choice"
 	caseAction   = "Case"
@@ -279,6 +281,8 @@ type parseAction struct {
 	terminal  bool
 	// regular?
 	//
+
+	recursiveNames []string
 }
 
 func (a *parseAction) walk(stub func(*parseAction)) {
@@ -583,15 +587,15 @@ func (g *G) shouldExit(pos *filePosition, kind string) bool {
 		return true
 	}
 	if g.nb == nil {
-		g.addError(pos, "must call builder methods inside builder")
+		g.addError(pos, "must call method inside BuildParser()")
 		return true
 	}
 	if !g.nb.inRule() {
-		g.addError(pos, "must call builder methods inside Define()")
+		g.addError(pos, "must call method inside Define()")
 		return true
 	}
 	if g.Mode == nil {
-		g.addError(pos, "no Mode set")
+		g.addError(pos, "Mode must be set first")
 		return true
 	}
 	if config := g.grammarConfig(); !config.actionAllowed(kind) {
@@ -637,6 +641,25 @@ func (g *G) buildRule(rule string, stub func()) []*parseAction {
 	return newNb.args
 }
 
+type DefineOptions struct {
+	name string
+	g    *G
+	a    *parseAction
+	p    *filePosition
+}
+
+func (db DefineOptions) Do(stub func()) {
+	db.g.defineSequence(db.name, db.p, db.a, stub)
+}
+
+func (db DefineOptions) Choice(options ...func()) {
+	db.g.defineChoice(db.name, db.p, db.a, options)
+}
+
+func (db DefineOptions) Recursive(names []string) DefineBlock {
+	return db.g.defineRecursive(db.name, db.p, db.a, names)
+}
+
 type DefineBlock struct {
 	name string
 	g    *G
@@ -652,32 +675,32 @@ func (db DefineBlock) Choice(options ...func()) {
 	db.g.defineChoice(db.name, db.p, db.a, options)
 }
 
-func (g *G) Define(name string) DefineBlock {
+func (g *G) Define(name string) DefineOptions {
 	p := g.markPosition(defineAction)
-	db := DefineBlock{g: g, p: p, name: name}
+	do := DefineOptions{g: g, p: p, name: name}
 
 	if g.grammar == nil {
-		return db
+		return do
 	} else if g.nb == nil {
-		g.addError(p, "must call define inside grammar")
-		return db
+		g.addError(p, "must call Define inside BuildGrammar()")
+		return do
 	} else if g.nb.inRule() {
-		g.addError(p, "cant call define inside define")
-		return db
+		g.addError(p, "cant call Define() inside Define()")
+		return do
 	}
 
 	if oldPos, ok := g.rulePos[name]; ok {
 		g.addErrorf(p, "cant redefine %q, already defined at %v", name, oldPos)
-		return db
+		return do
 	}
 
 	g.rulePos[name] = p
 
 	a := &parseAction{kind: ruleAction, args: nil, pos: p}
-	db.a = a
+	do.a = a
 	g.grammar.rules[name] = a
 	g.grammarConfig().names = append(g.grammarConfig().names, name)
-	return db
+	return do
 }
 
 func (g *G) defineSequence(name string, definePos *filePosition, a *parseAction, stub func()) {
@@ -742,6 +765,46 @@ func (g *G) defineChoice(name string, definePos *filePosition, a *parseAction, o
 		c := &parseAction{kind: choiceAction, args: args, pos: p}
 		g.nb.append(c)
 	})
+}
+
+func (g *G) defineRecursive(name string, definePos *filePosition, a *parseAction, names []string) DefineBlock {
+	p := g.markPosition(defineAction)
+
+	db := DefineBlock{g: g, p: p, name: name}
+
+	if a == nil || g.grammar == nil {
+		return db
+	} else if g.nb == nil {
+		g.addError(p, "must call Recursive inside grammar")
+		return db
+	} else if g.nb.inRule() {
+		g.addError(p, "cant call Recursive() inside a rule")
+		return db
+	}
+
+	if p.n-definePos.n != 1 {
+		g.addError(p, "called in wrong position")
+		return db
+	}
+
+	if names == nil || len(names) == 0 {
+		names = []string{name}
+	} else {
+		found := false
+		for _, n := range names {
+			if n == name {
+				found = true
+				break
+			}
+		}
+
+		if !found {
+			g.addError(p, "Recursive Rules must include own name in list")
+		}
+	}
+
+	a.recursiveNames = names
+	return db
 }
 
 func (g *G) Print(args ...any) {
@@ -1292,6 +1355,15 @@ func (g *G) Call(name string) {
 	g.nb.append(a)
 }
 
+func (g *G) Recur(name string) {
+	p := g.markPosition(recurAction)
+	if g.shouldExit(p, recurAction) {
+		return
+	}
+	a := &parseAction{kind: recurAction, name: name, pos: p}
+	g.nb.append(a)
+}
+
 func (g *G) Do(stub func()) {
 	p := g.markPosition(doAction)
 	if g.shouldExit(p, doAction) {
@@ -1704,7 +1776,7 @@ func (g *Grammar) Parser() *Parser {
 	rules := make([]parseFunc, len(g.rules))
 	for i, n := range g.config.names {
 		rule := g.rules[n]
-		rules[i] = buildAction(g.config, rule)
+		rules[i] = buildRule(g.config, n, rule)
 	}
 
 	p := &Parser{
@@ -1766,6 +1838,8 @@ func buildGrammar(pos *filePosition, mode GrammarMode, stub func(*G)) *Grammar {
 				capturePos[a.name] = append(capturePos[a.name], a.pos)
 
 			case callAction:
+				callPos[a.name] = append(callPos[a.name], a.pos)
+			case recurAction:
 				callPos[a.name] = append(callPos[a.name], a.pos)
 			}
 		})
@@ -2215,6 +2289,47 @@ func (s *parserState) finalNode(name string) int {
 	}
 }
 
+func buildRule(c *grammarConfig, name string, a *parseAction) parseFunc {
+	if a == nil {
+		// when a func() stub has no rules
+		return func(s *parserState) bool {
+			return true
+		}
+	}
+
+	switch a.kind {
+	case ruleAction:
+		rules := make([]parseFunc, len(a.args))
+		for i, r := range a.args {
+			rules[i] = buildAction(c, r)
+		}
+
+		if len(rules) == 0 {
+			return func(s *parserState) bool { return true }
+		}
+
+		return func(s *parserState) bool {
+			var s1 parserState
+			copyState(s, &s1)
+			oldChoice := s1.i.choiceExit
+			s1.i.choiceExit = false
+			for _, r := range rules {
+				if !r(&s1) {
+					s.i.choiceExit = oldChoice
+					return false
+				}
+			}
+			s1.i.choiceExit = oldChoice
+			mergeState(s, &s1)
+			return true
+		}
+	default:
+		return func(s *parserState) bool {
+			return false
+		}
+	}
+}
+
 func buildAction(c *grammarConfig, a *parseAction) parseFunc {
 	if a == nil {
 		// when a func() stub has no rules
@@ -2275,17 +2390,24 @@ func buildAction(c *grammarConfig, a *parseAction) parseFunc {
 
 			return result
 		}
+	case recurAction:
+		return func(s *parserState) bool {
+			return false
+		}
 	case callAction:
 		prefix := a.pos
 		name := a.name
 		idx := c.index[name]
 		fn := c.logFunc
+		var rule parseFunc
 		return func(s *parserState) bool {
 			if s.i.trace {
 				fn("%v: Call(%q) starting, at line %v, col %v\n", prefix, name, s.lineNumber, s.column)
 			}
 
-			rule := s.i.rules[idx] // can't move this out to runtime unless we reorder defs
+			if rule == nil {
+				rule = s.i.rules[idx] // can't move this out to runtime unless we reorder defs
+			}
 
 			out := rule(s)
 			if s.i.trace {
@@ -2734,32 +2856,6 @@ func buildAction(c *grammarConfig, a *parseAction) parseFunc {
 			}
 			s.i.choiceExit = oldExit
 			return false
-		}
-
-	case ruleAction:
-		rules := make([]parseFunc, len(a.args))
-		for i, r := range a.args {
-			rules[i] = buildAction(c, r)
-		}
-
-		if len(rules) == 0 {
-			return func(s *parserState) bool { return true }
-		}
-
-		return func(s *parserState) bool {
-			var s1 parserState
-			copyState(s, &s1)
-			oldChoice := s1.i.choiceExit
-			s1.i.choiceExit = false
-			for _, r := range rules {
-				if !r(&s1) {
-					s.i.choiceExit = oldChoice
-					return false
-				}
-			}
-			s1.i.choiceExit = oldChoice
-			mergeState(s, &s1)
-			return true
 		}
 
 	case doAction, caseAction, sequenceAction:
