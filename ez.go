@@ -329,7 +329,7 @@ func (a *parseAction) leftCalls() []string {
 
 		return out
 
-	case callAction:
+	case callAction, recurAction:
 		return []string{a.name}
 	}
 
@@ -2065,13 +2065,17 @@ func buildGrammar(pos *filePosition, mode GrammarMode, stub func(*G)) *Grammar {
 				p := bg.rulePos[name]
 				bg.addErrorf(p, "%s is left recursive with %v, but not defined to be", name, missing)
 			}
+			if len(rule.recursiveNames) != 1 || rule.recursiveNames[0] != name {
+				p := bg.rulePos[name]
+				bg.addErrorf(p, "%s is mutually left recursive, and this is currently unsupported", name)
+			}
 
 		} else if len(mutuals) == 1 && mutuals[0] == name {
 			p := bg.rulePos[name]
-			bg.addErrorf(p, "%s is directly left recursive", name)
+			bg.addErrorf(p, "%s is directly left recursive, and specified not to be", name)
 		} else if len(mutuals) > 0 {
 			p := bg.rulePos[name]
-			bg.addErrorf(p, "%s is mutually left recursive with %v", name, mutualCalls[name])
+			bg.addErrorf(p, "%s is mutually left recursive with %v, and specified not to be", name, mutualCalls[name])
 			break
 		}
 	}
@@ -2102,8 +2106,17 @@ func buildGrammar(pos *filePosition, mode GrammarMode, stub func(*G)) *Grammar {
 
 type parseFunc func(*parserState) bool
 
+type parserCorner struct {
+	name   string
+	offset int
+	state  *parserState
+	nodes  []Node
+}
+
 type parserInput struct {
 	rules   []parseFunc
+	starts  map[int]int // XXX no column check
+	corner  *parserCorner
 	buf     string
 	length  int
 	nodes   []Node
@@ -2396,6 +2409,29 @@ func (s *parserState) finalNode(name string) int {
 	}
 }
 
+func applyCorner(s *parserState) {
+	c := s.i.corner
+	s1 := c.state
+
+	s.offset = s1.offset
+	s.column = s1.column
+
+	s.lineStart = s.lineStart
+	s.lineNumber = s.lineNumber
+	s.lineIndent = s.lineIndent
+
+	for _, n := range c.nodes {
+		n.sibling = s.lastSibling
+		n.nsibling = s.countSibling
+
+		s.i.nodes = append(s.i.nodes[:s.numNodes], n)
+
+		s.lastSibling = s.numNodes
+		s.countSibling = s.countSibling + 1
+		s.numNodes = s.numNodes + 1
+	}
+}
+
 func buildRule(c *grammarConfig, name string, a *parseAction) parseFunc {
 	if a == nil {
 		// when a func() stub has no rules
@@ -2415,18 +2451,24 @@ func buildRule(c *grammarConfig, name string, a *parseAction) parseFunc {
 			return func(s *parserState) bool { return true }
 		}
 
+		idx := c.index[name]
+
 		return func(s *parserState) bool {
 			var s1 parserState
 			copyState(s, &s1)
 			oldChoice := s1.i.choiceExit
+			oldStart := s1.i.starts[idx]
 			s1.i.choiceExit = false
+			s1.i.starts[idx] = s1.offset
 			for _, r := range rules {
 				if !r(&s1) {
 					s.i.choiceExit = oldChoice
+					s1.i.starts[idx] = oldStart
 					return false
 				}
 			}
 			s1.i.choiceExit = oldChoice
+			s1.i.starts[idx] = oldStart
 			mergeState(s, &s1)
 			return true
 		}
@@ -2498,8 +2540,54 @@ func buildAction(c *grammarConfig, a *parseAction) parseFunc {
 			return result
 		}
 	case recurAction:
+		prefix := a.pos
+		name := a.name
+		idx := c.index[name]
+		fn := c.logFunc
+		var rule parseFunc
 		return func(s *parserState) bool {
-			return false
+			if rule == nil {
+				rule = s.i.rules[idx] // can't move this out to runtime unless we reorder defs
+			}
+
+			out := false
+
+			if off, ok := s.i.starts[idx]; ok && off == s.offset {
+				// we are the left most rule, and we have no seed rule to match
+				if s.i.trace {
+					fn("%v: Left Recur(%q) starting, at line %v, col %v\n", prefix, name, s.lineNumber, s.column)
+				}
+
+				out = false
+
+				if s.i.corner != nil {
+					if s.i.corner.name == name && s.i.corner.offset == s.offset {
+						applyCorner(s)
+						fn("%v: Left Recur(%q) returning, at line %v, col %v\n", prefix, name, s.lineNumber, s.column)
+						return true
+					}
+
+				}
+
+				fn("%v: Left Recur(%q) failing, at line %v, col %v\n", prefix, name, s.lineNumber, s.column)
+				return false
+
+			} else {
+				// we are not the left most rule
+				if s.i.trace {
+					fn("%v: Call Recur(%q) starting, at line %v, col %v\n", prefix, name, s.lineNumber, s.column)
+				}
+				out = rule(s)
+
+				if s.i.trace {
+					if out {
+						fn("%v: Call Recur(%q) returning, at line %v, col %v\n", prefix, name, s.lineNumber, s.column)
+					} else {
+						fn("%v: Call Recur(%q) failing, at line %v, col %v\n", prefix, name, s.lineNumber, s.column)
+					}
+				}
+				return out
+			}
 		}
 	case callAction:
 		prefix := a.pos
@@ -3032,6 +3120,7 @@ func (p *Parser) newParserState(s string) *parserState {
 		tabstop: p.config.tabstop,
 		nodes:   make([]Node, 128),
 		trace:   false,
+		starts:  make(map[int]int, len(p.rules)),
 	}
 	return &parserState{i: i}
 }
