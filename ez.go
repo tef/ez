@@ -19,8 +19,10 @@ const (
 	printAction = "Print"
 	traceAction = "Trace"
 
-	callAction  = "Call"
-	recurAction = "Recur"
+	callAction = "Call"
+
+	recurAction   = "Recur"
+	noRecurAction = "NoRecur"
 
 	choiceAction = "Choice"
 	caseAction   = "Case"
@@ -355,6 +357,11 @@ func (a *parseAction) setTerminal() {
 
 	case callAction:
 		a.terminal = false
+	case recurAction:
+		a.terminal = false
+
+	case noRecurAction:
+		a.terminal = true
 
 	case doAction, sequenceAction, caseAction, ruleAction:
 		a.terminal = allTerminal
@@ -432,6 +439,10 @@ func (a *parseAction) setZeroWidth(rules map[string]bool) bool {
 
 	case callAction:
 		a.zeroWidth = rules[a.name]
+	case recurAction:
+		a.zeroWidth = rules[a.name]
+	case noRecurAction:
+		a.zeroWidth = true
 
 	case doAction, caseAction, ruleAction, sequenceAction:
 		a.zeroWidth = allZw
@@ -1404,6 +1415,14 @@ func (g *G) Recur(name string) {
 	g.nb.append(a)
 }
 
+func (g *G) NoRecur() {
+	p := g.markPosition(noRecurAction)
+	if g.shouldExit(p, noRecurAction) {
+		return
+	}
+	a := &parseAction{kind: noRecurAction, pos: p}
+	g.nb.append(a)
+}
 func (g *G) Do(stub func()) {
 	p := g.markPosition(doAction)
 	if g.shouldExit(p, doAction) {
@@ -2409,6 +2428,28 @@ func (s *parserState) finalNode(name string) int {
 	}
 }
 
+func startCorner(s *parserState, s1 *parserState) {
+	*s1 = *s
+	s1.countSibling = 0
+	s1.lastSibling = 0
+}
+
+func pluckCorner(name string, s *parserState, s1 *parserState) {
+	nodes := []Node{}
+	for i := s.numNodes; i < s1.numNodes; i++ {
+		nodes = append(nodes, s.i.nodes[i])
+	}
+
+	c := &parserCorner{
+		name:   name,
+		state:  s1,
+		offset: s.offset,
+		nodes:  nodes,
+	}
+
+	s.i.corner = c
+}
+
 func applyCorner(s *parserState) {
 	c := s.i.corner
 	s1 := c.state
@@ -2430,6 +2471,8 @@ func applyCorner(s *parserState) {
 		s.countSibling = s.countSibling + 1
 		s.numNodes = s.numNodes + 1
 	}
+
+	s.i.corner = nil
 }
 
 func buildRule(c *grammarConfig, name string, a *parseAction) parseFunc {
@@ -2453,25 +2496,67 @@ func buildRule(c *grammarConfig, name string, a *parseAction) parseFunc {
 
 		idx := c.index[name]
 
-		return func(s *parserState) bool {
-			var s1 parserState
-			copyState(s, &s1)
-			oldChoice := s1.i.choiceExit
-			oldStart := s1.i.starts[idx]
-			s1.i.choiceExit = false
-			s1.i.starts[idx] = s1.offset
-			for _, r := range rules {
-				if !r(&s1) {
-					s.i.choiceExit = oldChoice
-					s1.i.starts[idx] = oldStart
-					return false
+		if a.recursiveNames == nil || len(a.recursiveNames) == 0 {
+			return func(s *parserState) bool {
+				var s1 parserState
+				copyState(s, &s1)
+				oldChoice := s1.i.choiceExit
+				oldStart := s1.i.starts[idx]
+				s1.i.choiceExit = false
+				s1.i.starts[idx] = s1.offset
+				for _, r := range rules {
+					if !r(&s1) {
+						s.i.choiceExit = oldChoice
+						s1.i.starts[idx] = oldStart
+						return false
+					}
 				}
+				s1.i.choiceExit = oldChoice
+				s1.i.starts[idx] = oldStart
+				mergeState(s, &s1)
+				return true
 			}
-			s1.i.choiceExit = oldChoice
-			s1.i.starts[idx] = oldStart
-			mergeState(s, &s1)
-			return true
+		} else {
+			return func(s *parserState) bool {
+				var s1 parserState
+				startCorner(s, &s1)
+				oldChoice := s1.i.choiceExit
+				oldStart := s1.i.starts[idx]
+				s1.i.choiceExit = false
+				s1.i.starts[idx] = s1.offset
+				for _, r := range rules {
+					if !r(&s1) {
+						s.i.choiceExit = oldChoice
+						s1.i.starts[idx] = oldStart
+						return false
+					}
+				}
+
+				pluckCorner(name, s, &s1)
+			growCorner:
+				for true {
+					var s1 parserState
+					startCorner(s, &s1)
+					for _, r := range rules {
+						if !r(&s1) {
+							break growCorner
+						}
+					}
+					if s.i.corner != nil { // shouldn't happen if NoRecur used in rules
+						break growCorner
+					}
+					pluckCorner(name, s, &s1)
+				}
+
+				applyCorner(s)
+
+				s.i.choiceExit = oldChoice
+				s.i.starts[idx] = oldStart
+
+				return true
+			}
 		}
+
 	default:
 		return func(s *parserState) bool {
 			return false
@@ -2539,6 +2624,11 @@ func buildAction(c *grammarConfig, a *parseAction) parseFunc {
 
 			return result
 		}
+	case noRecurAction:
+		return func(s *parserState) bool {
+			return s.i.corner == nil || s.i.corner.offset != s.offset
+		}
+
 	case recurAction:
 		prefix := a.pos
 		name := a.name
@@ -2563,13 +2653,17 @@ func buildAction(c *grammarConfig, a *parseAction) parseFunc {
 				if s.i.corner != nil {
 					if s.i.corner.name == name && s.i.corner.offset == s.offset {
 						applyCorner(s)
-						fn("%v: Left Recur(%q) returning, at line %v, col %v\n", prefix, name, s.lineNumber, s.column)
+						if s.i.trace {
+							fn("%v: Left Recur(%q) returning, at line %v, col %v\n", prefix, name, s.lineNumber, s.column)
+						}
 						return true
 					}
 
 				}
 
-				fn("%v: Left Recur(%q) failing, at line %v, col %v\n", prefix, name, s.lineNumber, s.column)
+				if s.i.trace {
+					fn("%v: Left Recur(%q) failing, at line %v, col %v\n", prefix, name, s.lineNumber, s.column)
+				}
 				return false
 
 			} else {
@@ -3034,10 +3128,11 @@ func buildAction(c *grammarConfig, a *parseAction) parseFunc {
 		}
 		return func(s *parserState) bool {
 			oldExit := s.i.choiceExit
+			oldCorner := s.i.corner
 			for _, r := range rules {
 				var s1 parserState
 				copyState(s, &s1)
-
+				s.i.corner = oldCorner
 				s1.i.choiceExit = false
 				if r(&s1) {
 					mergeState(s, &s1)
@@ -3049,6 +3144,7 @@ func buildAction(c *grammarConfig, a *parseAction) parseFunc {
 					break
 				}
 			}
+			s.i.corner = oldCorner
 			s.i.choiceExit = oldExit
 			return false
 		}
