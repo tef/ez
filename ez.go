@@ -258,8 +258,7 @@ func (m *textMode) Tabstop(t int) *textMode {
 // parseAction is a representation of a bit of a grammar
 
 type parseAction struct {
-	// this is a 'wide style' variant struct
-
+	// this is a 'wide style' variant
 	kind    string
 	pos     *filePosition
 	name    string         // call, capture
@@ -420,8 +419,9 @@ func (a *parseAction) setZeroWidth(rules map[string]bool) bool {
 			anyZw = anyZw || c.zeroWidth
 		}
 		// empty list should be true
-		anyZw = anyZw || allZw
 	}
+
+	anyZw = anyZw || allZw
 
 	switch a.kind {
 
@@ -450,9 +450,49 @@ func (a *parseAction) setZeroWidth(rules map[string]bool) bool {
 	case optionalAction:
 		a.zeroWidth = true
 
-	case matchRuneAction, matchStringAction:
+	case matchStringAction:
+		allZw = true
+		anyZw = false
+		if a.stringSwitch != nil {
+			for _, c := range a.stringSwitch {
+				c.setZeroWidth(rules)
+				allZw = allZw && c.zeroWidth
+				anyZw = anyZw || c.zeroWidth
+			}
+			// empty list should be true
+		}
+
+		anyZw = anyZw || allZw
 		a.zeroWidth = anyZw
+
+	case matchRuneAction:
+		allZw = true
+		anyZw = false
+		if a.runeSwitch != nil {
+			for _, c := range a.runeSwitch {
+				c.setZeroWidth(rules)
+				allZw = allZw && c.zeroWidth
+				anyZw = anyZw || c.zeroWidth
+			}
+			// empty list should be true
+		}
+
+		anyZw = anyZw || allZw
+		a.zeroWidth = anyZw
+
 	case matchByteAction:
+		allZw = true
+		anyZw = false
+		if a.byteSwitch != nil {
+			for _, c := range a.byteSwitch {
+				c.setZeroWidth(rules)
+				allZw = allZw && c.zeroWidth
+				anyZw = anyZw || c.zeroWidth
+			}
+			// empty list should be true
+		}
+
+		anyZw = anyZw || allZw
 		a.zeroWidth = anyZw
 
 	case startOfFileAction, endOfFileAction:
@@ -656,7 +696,7 @@ func (db DefineOptions) Choice(options ...func()) {
 	db.g.defineChoice(db.name, db.p, db.a, options)
 }
 
-func (db DefineOptions) Recursive(names []string) DefineBlock {
+func (db DefineOptions) Recursive(names ...string) DefineBlock {
 	return db.g.defineRecursive(db.name, db.p, db.a, names)
 }
 
@@ -770,7 +810,7 @@ func (g *G) defineChoice(name string, definePos *filePosition, a *parseAction, o
 func (g *G) defineRecursive(name string, definePos *filePosition, a *parseAction, names []string) DefineBlock {
 	p := g.markPosition(defineAction)
 
-	db := DefineBlock{g: g, p: p, name: name}
+	db := DefineBlock{g: g, a: a, p: p, name: name}
 
 	if a == nil || g.grammar == nil {
 		return db
@@ -1933,15 +1973,9 @@ func buildGrammar(pos *filePosition, mode GrammarMode, stub func(*G)) *Grammar {
 		directCalls[name] = rule.leftCalls()
 	}
 
-leftCheck:
+	indirectCalls := make(map[string][]string)
+
 	for name, _ := range g.rules {
-		for _, v := range directCalls[name] {
-			if v == name {
-				p := bg.rulePos[name]
-				bg.addErrorf(p, "%s is directly left recursive", name)
-				continue leftCheck
-			}
-		}
 		seen := make(map[string]bool)
 		seen[name] = true
 
@@ -1959,13 +1993,86 @@ leftCheck:
 
 		}
 		walk(name)
+		// cycles := make([]string, 0)
 
-		for _, v := range indirects {
-			if v == name {
-				p := bg.rulePos[name]
-				bg.addErrorf(p, "%s is mutually left recursive", name)
-				break
+		indirectCalls[name] = indirects
+	}
+
+	mutualCalls := make(map[string][]string)
+
+	for name, _ := range g.rules {
+		mutuals := make([]string, 0)
+
+		for _, rule_corner := range indirectCalls[name] {
+			if name == rule_corner {
+				mutuals = append(mutuals, name)
+			} else {
+				for _, n := range indirectCalls[rule_corner] {
+					if n == name {
+						mutuals = append(mutuals, name)
+						break
+					}
+				}
 			}
+
+		}
+		mutualCalls[name] = mutuals
+	}
+
+	for name, rule := range g.rules {
+
+		mutuals := mutualCalls[name]
+
+		if rule.recursiveNames != nil && len(rule.recursiveNames) > 0 {
+			missing := make([]string, 0)
+
+			for _, i := range rule.recursiveNames {
+				found := false
+				for _, r := range mutuals {
+					if i == r {
+						found = true
+						break
+					}
+
+				}
+
+				if !found {
+					missing = append(missing, i)
+				}
+			}
+			if len(missing) > 0 {
+				p := bg.rulePos[name]
+				bg.addErrorf(p, "%s is not left recursive with %v, but is defined to be", name, missing)
+			}
+
+			missing = make([]string, 0)
+
+			for _, i := range mutuals {
+				found := false
+				for _, r := range rule.recursiveNames {
+					if i == r {
+						found = true
+						break
+					}
+
+				}
+
+				if !found {
+					missing = append(missing, i)
+				}
+			}
+			if len(missing) > 0 {
+				p := bg.rulePos[name]
+				bg.addErrorf(p, "%s is left recursive with %v, but not defined to be", name, missing)
+			}
+
+		} else if len(mutuals) == 1 && mutuals[0] == name {
+			p := bg.rulePos[name]
+			bg.addErrorf(p, "%s is directly left recursive", name)
+		} else if len(mutuals) > 0 {
+			p := bg.rulePos[name]
+			bg.addErrorf(p, "%s is mutually left recursive with %v", name, mutualCalls[name])
+			break
 		}
 	}
 

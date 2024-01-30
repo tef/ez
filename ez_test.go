@@ -266,6 +266,7 @@ func TestErrors(t *testing.T) {
 	} else {
 		t.Logf("test grammar raised error:\n %v", g.Err)
 	}
+
 	// boo
 
 	g = BuildGrammar(func(g *G) {
@@ -312,6 +313,33 @@ func TestErrors(t *testing.T) {
 	} else {
 		t.Logf("test grammar raised error:\n %v", g.Err)
 	}
+
+}
+
+func TestRecursion(t *testing.T) {
+	var g *Grammar
+
+	// boo
+
+	g = BuildGrammar(func(g *G) {
+		g.Start = "expr"
+
+		g.Define("expr").Recursive("expr").Choice(func() {
+			g.Call("expr")
+			g.String("+")
+			g.Call("expr")
+		}, func() {
+			g.Rune().Range("0-9")
+			g.Rune().Range("0-9")
+		})
+	})
+
+	if g.Err != nil {
+		t.Errorf("error defining grammar:\n%v", g.Err)
+	} else {
+		t.Logf("test grammar worked")
+	}
+
 }
 
 func TestLogger(t *testing.T) {
@@ -719,7 +747,7 @@ func TestBinaryMode(t *testing.T) {
 		}
 		ok = parser.testRule("test_match_byte",
 			[]string{"1", "22", "333"},
-			[]string{"111", "2", "33"},
+			[]string{"", "111", "2", "33"},
 		)
 		if !ok {
 			t.Error("match byte test case failed")
