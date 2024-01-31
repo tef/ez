@@ -7,23 +7,27 @@ import (
 )
 
 func TestInfix(t *testing.T) {
+
+	var out *ez.ParseTree
+	var err error
+
 	if InfixParser.Err() != nil {
 		t.Fatal("error", InfixParser.Err())
 	}
 
-	tree, err := InfixParser.ParseTree("1")
+	out, err = InfixParser.ParseTree("1")
 
 	if err != nil {
 		t.Error("bad infix parse: ", err)
 	} else {
-		tree.Walk(func(n *ez.Node) {
+		out.Walk(func(n *ez.Node) {
 			t.Logf("node %q ", n)
 		})
 	}
 
 	t.Log("----")
 
-	out, err := InfixParser.ParseTree("1+2")
+	out, err = InfixParser.ParseTree("1+2")
 
 	if err != nil {
 		t.Error("bad infix parse 1+2: ", err)
@@ -32,11 +36,28 @@ func TestInfix(t *testing.T) {
 	}
 
 	t.Log("----")
-	out2, err := InfixParser.ParseTree(`1+2+3`)
+	out, err = InfixParser.ParseTree(`1+2+3`)
 
 	if err != nil {
 		t.Error("bad infix parse 1+2+3: ", err)
 	} else {
-		t.Logf("Output: %v", out2)
+		t.Logf("Output: %v", out)
+	}
+	t.Log("----")
+
+	out, err = InfixParser.ParseTree(`1=2=3`)
+
+	if err != nil {
+		t.Error("bad infix parse 1+2+3: ", err)
+	} else {
+		t.Logf("Output: %v", out)
+	}
+
+	out, err = InfixParser.ParseTree(`1+2=3=4+5+6`)
+
+	if err != nil {
+		t.Error("bad infix parse 1+2+3: ", err)
+	} else {
+		t.Logf("Output: %v", out)
 	}
 }

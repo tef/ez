@@ -16,14 +16,24 @@ var InfixParser = ez.BuildParser(func(g *ez.G) {
 
 	g.Define("expression").Recursive("expression").Choice(func() {
 		g.Capture("add", func() {
+			g.Corner("expression", 1)
 			g.Recur("expression") 
 			g.Whitespace()
 			g.String("+")
 			g.Whitespace()
-			g.Call("expression")
+			g.Stump("expression")
 		})
 	}, func() {
-		g.NoRecur()
+		g.Capture("=", func() {
+			g.Corner("expression", 2)
+			g.Stump("expression") 
+			g.Whitespace()
+			g.String("=")
+			g.Whitespace()
+			g.Recur("expression")
+		})
+	}, func() {
+		g.NoCorner("expression",3)
 		g.Call("number")
 	})
 
