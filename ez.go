@@ -2678,12 +2678,17 @@ func buildAction(c *grammarConfig, a *parseAction) parseFunc {
 				return false
 			}
 			// fmt.Println(s.i.inside, precedence)
-			if s.i.corner != nil && s.i.corner.offset == s.offset {
-				// fmt.Println("set", precedence, "inside", s.i.inside)
-				s.precedence = precedence
-				return true
-			}
-			return false
+
+			// case 1. parse for corner, we're left, fine
+			// case 2. parse for non corner, left rec is optional, should be fine
+			// case 3. parse for non corner, optional prefix matches, so no left rec
+			// case 4. parse for non corner, direct left rec, fails then
+
+			// we can't check s.i.corner unless we know _absolutely_
+			// left rec is always direct
+
+			s.precedence = precedence
+			return true
 		}
 	case noCornerAction:
 		name := a.name
